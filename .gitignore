@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+scripts/.laravel-active-port
+scripts/.laravel-bind-port
+.DS_Store
+
+# Local chat API server (see chat-server/.env.example)
+chat-server/node_modules
+chat-server/chat.db
+chat-server/.env

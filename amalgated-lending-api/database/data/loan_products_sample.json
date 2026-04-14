@@ -1,0 +1,22 @@
+[
+  {
+    "slug": "rem",
+    "name": "REM (Real Estate Mortgage)",
+    "interest_rate": 3.88,
+    "rate_type": "monthly",
+    "collateral": "Title",
+    "tier": "blue"
+  },
+  {
+    "slug": "sss-gsis",
+    "name": "SSS/GSIS (Pensioner Loan)",
+    "interest_rate": 2.24,
+    "rate_type": "monthly",
+    "collateral": "ATM Card",
+    "max_term": 36,
+    "age_limit": 70,
+    "safe_age": 65,
+    "sample_monthly_pension": 4000,
+    "tier": "green"
+  }
+]

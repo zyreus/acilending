@@ -1,0 +1,519 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\BorrowerNotificationController;
+use App\Models\AdminNotification;
+use App\Models\BorrowerNotification;
+use App\Models\Lead;
+use App\Models\LeadMessage;
+use App\Models\Loan;
+use App\Models\LoanApplication;
+use App\Models\Payment;
+use App\Models\TravelApplication;
+use App\Support\LoanApplicationDocumentStatus;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
+
+class BorrowerPortalController extends Controller
+{
+    /**
+     * Which loan drives the payment schedule on the dashboard.
+     * Prefer in-progress lending over newer pending applications (otherwise `orderByDesc(id)->first`
+     * hid older ongoing loans when the borrower applied again).
+     */
+    private function selectPrimaryLoan(\Illuminate\Support\Collection $loans): ?Loan
+    {
+        if ($loans->isEmpty()) {
+            return null;
+        }
+
+        $priority = [
+            Loan::STATUS_ONGOING => 1,
+            Loan::STATUS_APPROVED => 2,
+            Loan::STATUS_PENDING => 3,
+            Loan::STATUS_REJECTED => 4,
+            Loan::STATUS_COMPLETED => 5,
+        ];
+
+        return $loans->sort(function ($a, $b) use ($priority) {
+            $pa = $priority[$a->status] ?? 99;
+            $pb = $priority[$b->status] ?? 99;
+            if ($pa !== $pb) {
+                return $pa <=> $pb;
+            }
+
+            return $b->id <=> $a->id;
+        })->first();
+    }
+
+    private function resolveBorrowerLead($user): Lead
+    {
+        $lead = Lead::query()
+            ->where('email', $user->email)
+            ->orderByDesc('id')
+            ->first();
+
+        if ($lead) {
+            if ($lead->user_id !== $user->id) {
+                $lead->user_id = $user->id;
+                $lead->save();
+            }
+
+            return $lead;
+        }
+
+        return Lead::create([
+            'user_id' => $user->id,
+            'name' => (string) $user->name,
+            'email' => (string) $user->email,
+            'organization' => null,
+            'loan_type' => 'Borrower Support',
+            'status' => 'ongoing',
+            'initial_message' => 'Borrower opened support chat.',
+            'chat_token' => bin2hex(random_bytes(20)),
+            'last_message_at' => now(),
+        ]);
+    }
+
+    public function dashboard(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $allLoans = Loan::query()
+            ->where('borrower_id', $user->id)
+            ->orderByDesc('id')
+            ->get();
+
+        $loan = $this->selectPrimaryLoan($allLoans);
+        if ($loan) {
+            $loan->load(['payments' => fn ($q) => $q->orderBy('due_date')]);
+        }
+
+        $loansSummary = $allLoans->map(function (Loan $l) {
+            return [
+                'id' => $l->id,
+                'status' => $l->status,
+                'principal' => $l->principal,
+                'term_months' => $l->term_months,
+                'annual_interest_rate' => $l->annual_interest_rate,
+                'monthly_payment' => $l->monthly_payment,
+                'outstanding_balance' => $l->outstanding_balance,
+                'created_at' => optional($l->created_at)?->toIso8601String(),
+                'rejection_reason' => $l->rejection_reason,
+            ];
+        })->values();
+
+        $pendingRows = collect();
+        $historyRows = collect();
+        $summary = [
+            'total_loan_balance' => 0,
+            'monthly_payment' => 0,
+            'next_due_date' => null,
+            'overdue_amount' => 0,
+            'paid_amount' => 0,
+            'total_payable' => 0,
+            'progress_percent' => 0,
+        ];
+
+        BorrowerNotificationController::syncPaymentRemindersForUser($user);
+        $notifications = BorrowerNotification::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->limit(8)
+            ->get()
+            ->map(fn (BorrowerNotification $n) => [
+                'type' => $n->type,
+                'message' => $n->body ? $n->title.' — '.$n->body : $n->title,
+            ])
+            ->values()
+            ->all();
+
+        if ($loan) {
+            $all = collect($loan->payments ?? []);
+            $pendingRows = $all
+                ->filter(fn (Payment $p) => $p->status !== Payment::STATUS_PAID)
+                ->values();
+            $historyRows = $all
+                ->filter(fn (Payment $p) => $p->status === Payment::STATUS_PAID)
+                ->sortByDesc(fn (Payment $p) => $p->paid_at?->timestamp ?? 0)
+                ->values();
+
+            $dueTotal = (float) $all->sum(fn (Payment $p) => (float) $p->amount_due + (float) ($p->penalty_amount ?? 0));
+            $paidTotal = (float) $all->sum(fn (Payment $p) => (float) $p->amount_paid);
+            $overdueAmount = (float) $pendingRows
+                ->filter(fn (Payment $p) => $p->due_date && $p->due_date->isPast())
+                ->sum(fn (Payment $p) => max(0, ((float) $p->amount_due + (float) ($p->penalty_amount ?? 0)) - (float) $p->amount_paid));
+
+            $nextDue = $pendingRows
+                ->filter(fn (Payment $p) => $p->due_date !== null)
+                ->sortBy(fn (Payment $p) => $p->due_date->timestamp)
+                ->first();
+
+            $summary = [
+                'total_loan_balance' => (float) ($loan->outstanding_balance ?? 0),
+                'monthly_payment' => (float) ($loan->monthly_payment ?? 0),
+                'next_due_date' => $nextDue?->due_date?->toDateString(),
+                'overdue_amount' => round($overdueAmount, 2),
+                'paid_amount' => round($paidTotal, 2),
+                'total_payable' => round($dueTotal, 2),
+                'progress_percent' => $dueTotal > 0 ? round(min(100, ($paidTotal / $dueTotal) * 100), 2) : 0,
+            ];
+
+        }
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                'summary' => $summary,
+                'loans' => $loansSummary,
+                'active_loan' => $loan,
+                'pending_payments' => $pendingRows->values(),
+                'payment_history' => $historyRows->values(),
+                'notifications' => $notifications,
+            ],
+        ]);
+    }
+
+    public function payments(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $loanIds = Loan::query()->where('borrower_id', $user->id)->pluck('id');
+
+        $payments = Payment::query()
+            ->whereIn('loan_id', $loanIds)
+            ->with('loan')
+            ->orderBy('due_date')
+            ->paginate((int) $request->query('per_page', 15));
+
+        return response()->json(['ok' => true, 'data' => $payments]);
+    }
+
+    public function paymentHistory(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $loanIds = Loan::query()->where('borrower_id', $user->id)->pluck('id');
+
+        $rows = Payment::query()
+            ->whereIn('loan_id', $loanIds)
+            ->where('status', Payment::STATUS_PAID)
+            ->with('loan')
+            ->orderByDesc('paid_at')
+            ->paginate((int) $request->query('per_page', 15));
+
+        return response()->json(['ok' => true, 'data' => $rows]);
+    }
+
+    /**
+     * Back-compat: some environments may have cached routes pointing
+     * `/api/v1/borrower/notifications` here. Delegate to the dedicated controller.
+     */
+    public function notifications(Request $request): JsonResponse
+    {
+        /** @var BorrowerNotificationController $controller */
+        $controller = app(BorrowerNotificationController::class);
+
+        return $controller->index($request);
+    }
+
+    public function uploadPayment(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'payment_id' => 'required|integer|exists:payments,id',
+            'reference_number' => 'required|string|max:128',
+            'payment_method' => 'required|string|in:gcash,bank,cash',
+            'receipt' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120',
+        ]);
+
+        $payment = Payment::query()
+            ->whereKey($data['payment_id'])
+            ->whereHas('loan', function ($q) use ($user) {
+                $q->where('borrower_id', $user->id);
+            })
+            ->first();
+
+        if (! $payment) {
+            return response()->json(['ok' => false, 'message' => 'Payment record not found for borrower.'], 404);
+        }
+
+        /** @var UploadedFile $file */
+        $file = $data['receipt'];
+        $path = $file->store('borrower-receipts', 'public');
+
+        $payment->reference_number = $data['reference_number'];
+        $payment->payment_method = $data['payment_method'];
+        $payment->receipt_path = $path;
+        $payment->receipt_name = $file->getClientOriginalName();
+        $payment->submitted_at = now();
+        $payment->source = 'manual';
+        $payment->notes = trim((string) ($payment->notes ?? '').' | Receipt uploaded by borrower');
+        $payment->save();
+
+        // Admin notifications page: reflect borrower-submitted payment proof.
+        $payment->loadMissing('loan');
+        AdminNotification::create([
+            'user_id' => $user->id,
+            'type' => 'borrower_payment_submitted',
+            'title' => 'Payment submitted from '.$user->name,
+            'body' => 'Installment #'.($payment->installment_no ?? '—').' · Amount '.number_format((float) ($payment->amount_due ?? 0), 2).' · Ref '.$payment->reference_number,
+            'data' => [
+                'payment_id' => $payment->id,
+                'loan_id' => $payment->loan_id,
+                'borrower_id' => $user->id,
+                'receipt_path' => $payment->receipt_path,
+            ],
+            'read_at' => null,
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Payment receipt uploaded. Waiting for admin confirmation.',
+            'payment' => $payment->fresh('loan'),
+            'receipt_url' => Storage::disk('public')->url($path),
+        ]);
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'phone' => 'nullable|string|max:32',
+            'id_document' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
+        ]);
+
+        $user->name = $data['name'];
+        $user->phone = $data['phone'] ?? $user->phone;
+
+        if ($request->hasFile('id_document')) {
+            /** @var UploadedFile $idDoc */
+            $idDoc = $request->file('id_document');
+            $path = $idDoc->store('borrower-id-docs', 'public');
+            $user->id_document_path = $path;
+            $user->id_document_name = $idDoc->getClientOriginalName();
+        }
+
+        $user->save();
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Profile updated successfully.',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'id_document_name' => $user->id_document_name,
+                'id_document_url' => $user->id_document_path ? Storage::disk('public')->url($user->id_document_path) : null,
+            ],
+        ]);
+    }
+
+    public function chatMessages(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $lead = $this->resolveBorrowerLead($user);
+        $messages = $lead->messages()->with('adminUser')->get()->map(function (LeadMessage $m) {
+            return [
+                'id' => $m->id,
+                'sender_type' => $m->sender_type,
+                'message' => $m->message,
+                'attachment_name' => $m->attachment_name,
+                'attachment_url' => $m->attachment_path ? Storage::disk('public')->url($m->attachment_path) : null,
+                'admin_name' => $m->adminUser?->name,
+                'created_at' => optional($m->created_at)?->toIso8601String(),
+            ];
+        });
+
+        return response()->json([
+            'ok' => true,
+            'lead' => [
+                'id' => $lead->id,
+                'status' => $lead->status,
+            ],
+            'data' => $messages,
+        ]);
+    }
+
+    public function sendChatMessage(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $lead = $this->resolveBorrowerLead($user);
+        $data = $request->validate([
+            'message' => 'nullable|string|max:5000',
+            'attachment' => 'nullable|file|max:5120|mimes:jpg,jpeg,png,pdf,doc,docx',
+        ]);
+        if (! $request->hasFile('attachment') && trim((string) ($data['message'] ?? '')) === '') {
+            return response()->json(['ok' => false, 'message' => 'Message or attachment is required.'], 422);
+        }
+
+        $path = null;
+        $name = null;
+        if ($request->hasFile('attachment')) {
+            /** @var UploadedFile $file */
+            $file = $request->file('attachment');
+            $path = $file->store('lead-chat', 'public');
+            $name = $file->getClientOriginalName();
+        }
+
+        $msg = LeadMessage::create([
+            'lead_id' => $lead->id,
+            'sender_type' => 'borrower',
+            'message' => trim((string) ($data['message'] ?? '')) ?: null,
+            'attachment_path' => $path,
+            'attachment_name' => $name,
+        ]);
+        $lead->last_message_at = now();
+        if ($lead->status === 'closed') {
+            $lead->status = 'ongoing';
+        }
+        $lead->save();
+
+        return response()->json([
+            'ok' => true,
+            'message' => [
+                'id' => $msg->id,
+                'sender_type' => $msg->sender_type,
+                'message' => $msg->message,
+                'attachment_name' => $msg->attachment_name,
+                'attachment_url' => $msg->attachment_path ? Storage::disk('public')->url($msg->attachment_path) : null,
+                'created_at' => optional($msg->created_at)?->toIso8601String(),
+            ],
+        ], 201);
+    }
+
+    /**
+     * All uploaded documents from general loan applications + profile ID, for Borrower Profile → Documents.
+     */
+    public function profileDocuments(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $items = [];
+
+        if ($user->id_document_path) {
+            $items[] = [
+                'source' => 'profile',
+                'label' => 'Valid ID (profile)',
+                'url' => Storage::disk('public')->url($user->id_document_path),
+                'path' => $user->id_document_path,
+            ];
+        }
+
+        $apps = LoanApplication::query()
+            ->where('user_id', $user->id)
+            ->whereIn('loan_type', array_keys(config('amalgated_loans.general_loan_types')))
+            ->orderByDesc('id')
+            ->get();
+
+        foreach ($apps as $app) {
+            $loanLabel = config('amalgated_loans.general_loan_types')[$app->loan_type] ?? $app->loan_type;
+            foreach ($app->documents ?? [] as $key => $paths) {
+                $docLabel = config('amalgated_loans.general_documents.'.$app->loan_type.'.'.$key.'.label') ?? $key;
+                $list = is_array($paths) ? $paths : ($paths ? [$paths] : []);
+                foreach ($list as $p) {
+                    if (! $p) {
+                        continue;
+                    }
+                    $items[] = [
+                        'source' => 'loan_application',
+                        'application_id' => $app->id,
+                        'loan_type_label' => $loanLabel,
+                        'doc_key' => $key,
+                        'label' => $docLabel,
+                        'url' => Storage::disk('public')->url($p),
+                        'path' => $p,
+                    ];
+                }
+            }
+        }
+
+        return response()->json(['ok' => true, 'data' => $items]);
+    }
+
+    /**
+     * General + travel applications for the borrower dashboard (document checklist, signatures, print links).
+     */
+    public function lendingApplications(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $general = LoanApplication::query()
+            ->where('user_id', $user->id)
+            ->whereIn('loan_type', array_keys(config('amalgated_loans.general_loan_types')))
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (LoanApplication $a) {
+                $docStatus = LoanApplicationDocumentStatus::forGeneralLoanType($a->loan_type, $a->documents);
+
+                return [
+                    'id' => $a->id,
+                    'kind' => 'general',
+                    'loan_type' => $a->loan_type,
+                    'loan_type_label' => config('amalgated_loans.general_loan_types')[$a->loan_type] ?? $a->loan_type,
+                    'status' => $a->status,
+                    'is_draft' => $a->submitted_at === null,
+                    'submitted_at' => $a->submitted_at?->toIso8601String(),
+                    'created_at' => $a->created_at?->toIso8601String(),
+                    'documents_checklist' => collect($docStatus)->map(fn ($row, $k) => [
+                        'key' => $k,
+                        'label' => $row['label'],
+                        'uploaded' => $row['ok'],
+                    ])->values(),
+                    'signatures' => [
+                        'applicant' => $a->applicant_signature ? Storage::disk('public')->url($a->applicant_signature) : null,
+                        'spouse' => $a->spouse_signature ? Storage::disk('public')->url($a->spouse_signature) : null,
+                        'comaker' => $a->comaker_signature ? Storage::disk('public')->url($a->comaker_signature) : null,
+                    ],
+                    'print_url' => URL::temporarySignedRoute(
+                        'print.general-loan',
+                        now()->addMinutes(45),
+                        ['loanApplication' => $a->id]
+                    ),
+                ];
+            });
+
+        $travel = TravelApplication::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (TravelApplication $a) {
+                $docStatus = LoanApplicationDocumentStatus::forTravel($a->documents);
+
+                return [
+                    'id' => $a->id,
+                    'kind' => 'travel',
+                    'status' => $a->status,
+                    'created_at' => $a->created_at?->toIso8601String(),
+                    'documents_checklist' => collect($docStatus)->map(fn ($row, $k) => [
+                        'key' => $k,
+                        'label' => $row['label'],
+                        'uploaded' => $row['ok'],
+                    ])->values(),
+                    'signatures' => [
+                        'applicant' => $a->applicant_signature ? Storage::disk('public')->url($a->applicant_signature) : null,
+                        'spouse' => $a->spouse_signature ? Storage::disk('public')->url($a->spouse_signature) : null,
+                    ],
+                    'terms_accepted' => $a->terms_accepted,
+                    'print_url' => URL::temporarySignedRoute(
+                        'print.travel-loan',
+                        now()->addMinutes(45),
+                        ['travelApplication' => $a->id]
+                    ),
+                    'terms_url' => url('/travel-assistance/terms'),
+                ];
+            });
+
+        return response()->json([
+            'ok' => true,
+            'data' => [
+                'general' => $general,
+                'travel' => $travel,
+            ],
+        ]);
+    }
+}

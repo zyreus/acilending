@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+[x-cloak] {
+  display: none !important;
+}
+
+/* `dark:` variants are inert (`.dark` is never applied — app is light-only). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design system: red, black, white (Amalgated Lending) */
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Inter", system-ui, sans-serif;
+  --color-brand-primary: #dc2626;
+  --color-brand-primary-hover: #b91c1c;
+  --color-brand-secondary: #404040;
+  --color-brand-background: #FFFFFF;
+  --color-brand-background-alt: #FFFFFF;
+  --color-brand-text: #000000;
+  --color-brand-green: #dc2626;
+  --color-brand-green-hover: #b91c1c;
+  --color-brand-dark: #0f172a;
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.08);
+  --shadow-brand-primary: 0 2px 8px rgba(220, 38, 38, 0.35);
+  --shadow-brand-green: 0 2px 8px rgba(220, 38, 38, 0.35);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+body,
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  font-family: var(--font-sans);
+  background-color: var(--color-brand-background-alt);
+  color: var(--color-brand-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: rgba(220, 38, 38, 0.2);
+}
+
+.nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-brand-text);
+  transition: color 0.2s;
+}
+.nav-link:hover {
+  color: var(--color-brand-primary);
+}
+
+@layer components {
+  .app-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
+  .surface-card {
+    @apply rounded-2xl border border-white/10 bg-[#0c0c0c] shadow-[0_10px_30px_rgba(0,0,0,0.35)];
+  }
+
+  .surface-card-light {
+    @apply rounded-2xl border border-black/10 bg-white shadow-[0_10px_30px_rgba(0,0,0,0.08)];
+  }
+
+  .section-title {
+    @apply text-xs font-semibold uppercase tracking-[0.2em] text-red-500;
+  }
+}
+
+/* Chat widget: typing dots animation */
+@keyframes chat-dot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; }
+}
+.chat-dot {
+  animation: chat-dot-bounce 1.2s ease-in-out infinite;
+}
+.chat-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+/* Loan application: screen hides print layout; print shows only #loan-application-print-root */
+@media screen {
+  .print-only-amalg {
+    position: absolute;
+    left: -10000px;
+    top: 0;
+    width: 210mm;
+    overflow: hidden;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  #loan-application-print-root,
+  #loan-application-print-root * {
+    visibility: visible;
+  }
+  #loan-application-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: #fff;
+    color: #000;
+  }
+  .print-page-number::after {
+    content: "Page " counter(page);
+  }
+  .no-print {
+    display: none !important;
+  }
+}

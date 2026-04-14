@@ -1,0 +1,25 @@
+{
+  "name": "amalgated-lending-chat-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Socket.IO + REST API for Amalgated Lending (chat, CRM, feedback, inquiries, lending applications). Copied from Amalgated Holdings server.js stack.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "groq-sdk": "^0.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.1",
+    "mysql2": "^3.19.1",
+    "nodemailer": "^8.0.2",
+    "resend": "^6.9.3",
+    "socket.io": "^4.8.1",
+    "sql.js": "^1.11.0"
+  }
+}

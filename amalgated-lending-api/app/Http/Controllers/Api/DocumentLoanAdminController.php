@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\DocumentLoanApplication;
+use App\Models\UploadedDocument;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class DocumentLoanAdminController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        $q = DocumentLoanApplication::query()->with(['user', 'loanProduct']);
+
+        if ($request->filled('status')) {
+            $q->where('status', $request->query('status'));
+        }
+        if ($search = trim((string) $request->query('search', ''))) {
+            $q->whereHas('user', function ($w) use ($search) {
+                $w->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('email', 'like', '%'.$search.'%');
+            });
+        }
+
+        $perPage = min(100, max(5, (int) $request->query('per_page', 20)));
+
+        return response()->json(['ok' => true, 'data' => $q->orderByDesc('id')->paginate($perPage)]);
+    }
+
+    public function show(DocumentLoanApplication $documentLoanApplication): JsonResponse
+    {
+        $documentLoanApplication->load(['user', 'loanProduct.loanRequirements', 'uploadedDocuments.loanRequirement']);
+
+        return response()->json(['ok' => true, 'application' => $documentLoanApplication]);
+    }
+
+    public function updateUpload(Request $request, UploadedDocument $uploadedDocument): JsonResponse
+    {
+        $data = $request->validate([
+            'status' => 'required|string|in:pending,verified,rejected',
+            'remarks' => 'nullable|string|max:2000',
+        ]);
+
+        $uploadedDocument->status = $data['status'];
+        $uploadedDocument->remarks = $data['remarks'] ?? $uploadedDocument->remarks;
+        $uploadedDocument->save();
+
+        return response()->json(['ok' => true, 'upload' => $uploadedDocument->fresh('loanRequirement')]);
+    }
+}

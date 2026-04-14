@@ -1,0 +1,12 @@
+# Single-page app (Vite build) on Apache / cPanel.
+# Copied to dist/ root on `npm run build`.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  # Serve real files and directories as-is (CSS, JS, images, /assets/*).
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  # All other routes (e.g. /admin/login) → index.html for client-side routing.
+  RewriteRule ^ index.html [L]
+</IfModule>
