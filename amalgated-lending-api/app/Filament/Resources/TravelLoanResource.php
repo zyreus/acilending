@@ -5,10 +5,10 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TravelLoanResource\Pages;
 use App\Models\TravelApplication;
 use Filament\Forms;
-use Filament\Resources\Form;
+use Filament\Forms\Form;
 use Filament\Resources\Resource;
-use Filament\Resources\Table;
 use Filament\Tables;
+use Filament\Tables\Table;
 
 /**
  * Travel Assistance Loan — isolated from general loan_applications.

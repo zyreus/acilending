@@ -5,14 +5,14 @@ namespace App\Filament\Resources\GeneralLoanApplicationResource\Pages;
 use App\Filament\Resources\GeneralLoanApplicationResource;
 use App\Models\LoanApplication;
 use Filament\Forms;
-use Filament\Pages\Actions\Action;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\EditRecord;
 
 class EditGeneralLoanApplication extends EditRecord
 {
     protected static string $resource = GeneralLoanApplicationResource::class;
 
-    protected function getActions(): array
+    protected function getHeaderActions(): array
     {
         return array_merge([
             Action::make('print')
@@ -48,6 +48,6 @@ class EditGeneralLoanApplication extends EditRecord
                         'rejection_reason' => $data['rejection_reason'],
                     ]);
                 }),
-        ], parent::getActions());
+        ], parent::getHeaderActions());
     }
 }

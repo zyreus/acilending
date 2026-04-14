@@ -12,7 +12,8 @@ const path = require('path')
 const { writeActivePort, clearActivePort, readBindPort } = require('./laravel-active-port.cjs')
 
 const host = process.env.LARAVEL_HOST || '127.0.0.1'
-const timeoutMs = Number(process.env.LARAVEL_WAIT_MS || 120000)
+const timeoutMs = Number(process.env.LARAVEL_WAIT_MS || 20000)
+const strictWait = String(process.env.LARAVEL_WAIT_STRICT || '').toLowerCase() === 'true'
 const intervalMs = 150
 
 function healthOk(port) {
@@ -78,12 +79,16 @@ async function main() {
       }
     }
     if (Date.now() - start > timeoutMs) {
+      const modeNote = strictWait
+        ? 'Strict mode enabled (LARAVEL_WAIT_STRICT=true), stopping startup.'
+        : 'Continuing with Vite startup (best effort mode).'
       process.stderr.write(
         `Timeout (${timeoutMs}ms).\n` +
           `  • Run from amalgated-lending: npm run serve:laravel (or npm run dev) so scripts/serve-laravel.cjs runs.\n` +
-          `  • Expected scripts/.laravel-bind-port with the port php artisan serve chose.\n`,
+          `  • Expected scripts/.laravel-bind-port with the port php artisan serve chose.\n` +
+          `  • ${modeNote}\n`,
       )
-      process.exit(1)
+      process.exit(strictWait ? 1 : 0)
     }
     await new Promise((r) => setTimeout(r, intervalMs))
   }

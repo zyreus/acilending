@@ -5,10 +5,10 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\DocumentLoanApplicationResource\Pages;
 use App\Models\DocumentLoanApplication;
 use Filament\Forms;
-use Filament\Resources\Form;
+use Filament\Forms\Form;
 use Filament\Resources\Resource;
-use Filament\Resources\Table;
 use Filament\Tables;
+use Filament\Tables\Table;
 
 class DocumentLoanApplicationResource extends Resource
 {

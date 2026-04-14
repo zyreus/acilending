@@ -3,14 +3,14 @@
 namespace App\Filament\Resources\TravelLoanResource\Pages;
 
 use App\Filament\Resources\TravelLoanResource;
-use Filament\Pages\Actions\Action;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\EditRecord;
 
 class EditTravelLoan extends EditRecord
 {
     protected static string $resource = TravelLoanResource::class;
 
-    protected function getActions(): array
+    protected function getHeaderActions(): array
     {
         return array_merge([
             Action::make('print')
@@ -23,6 +23,6 @@ class EditTravelLoan extends EditRecord
                 ->icon('heroicon-o-document-text')
                 ->url(fn () => route('travel.terms'))
                 ->openUrlInNewTab(),
-        ], parent::getActions());
+        ], parent::getHeaderActions());
     }
 }

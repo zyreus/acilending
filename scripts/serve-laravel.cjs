@@ -23,10 +23,60 @@ if (!fs.existsSync(artisan)) {
 }
 
 const RANGE = 40
+const MIN_PHP_MAJOR = 8
+const MIN_PHP_MINOR = 3
+
+function parsePhpVersion(text) {
+  const match = String(text || '').match(/PHP\s+(\d+)\.(\d+)\.(\d+)/i)
+  if (!match) return null
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+  }
+}
+
+function isSupportedPhp(version) {
+  if (!version) return false
+  if (version.major > MIN_PHP_MAJOR) return true
+  if (version.major < MIN_PHP_MAJOR) return false
+  return version.minor >= MIN_PHP_MINOR
+}
+
+function resolvePhpVersion(phpBinary) {
+  return new Promise((resolve) => {
+    const probe = spawn(phpBinary, ['-v'], { shell: false })
+    let out = ''
+    let err = ''
+    probe.stdout.on('data', (chunk) => {
+      out += String(chunk || '')
+    })
+    probe.stderr.on('data', (chunk) => {
+      err += String(chunk || '')
+    })
+    probe.on('error', () => resolve({ ok: false, version: null, output: '' }))
+    probe.on('exit', () => {
+      const output = `${out}\n${err}`.trim()
+      resolve({ ok: true, version: parsePhpVersion(output), output })
+    })
+  })
+}
 
 async function main() {
   clearBindPort()
   const php = process.env.PHP_BINARY || 'php'
+  const phpCheck = await resolvePhpVersion(php)
+  if (!phpCheck.ok || !isSupportedPhp(phpCheck.version)) {
+    const detected = phpCheck.version
+      ? `${phpCheck.version.major}.${phpCheck.version.minor}.${phpCheck.version.patch}`
+      : 'unknown'
+    process.stderr.write(
+      `Laravel 12 in amalgated-lending-api requires PHP ${MIN_PHP_MAJOR}.${MIN_PHP_MINOR}+.\n` +
+        `Detected PHP version: ${detected} (binary: ${php}).\n` +
+        `Set PHP_BINARY to a PHP ${MIN_PHP_MAJOR}.${MIN_PHP_MINOR}+ executable and retry.\n`,
+    )
+    process.exit(1)
+  }
   const memoryLimit = process.env.LARAVEL_PHP_MEMORY_LIMIT || '256M'
   const preferred = Math.max(8000, parseInt(getLaravelPort(), 10) || 8000)
   const end = preferred + RANGE

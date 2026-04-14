@@ -6,10 +6,10 @@ use App\Filament\Resources\GeneralLoanApplicationResource\Pages;
 use App\Models\LoanApplication;
 use Closure;
 use Filament\Forms;
-use Filament\Resources\Form;
+use Filament\Forms\Form;
 use Filament\Resources\Resource;
-use Filament\Resources\Table;
 use Filament\Tables;
+use Filament\Tables\Table;
 
 /**
  * General loan applications: exactly one loan_type controls visible fields, documents, and validation.
@@ -105,7 +105,7 @@ class GeneralLoanApplicationResource extends Resource
                         Forms\Components\Radio::make('loan_type')
                             ->options(config('amalgated_loans.general_loan_types'))
                             ->required()
-                            ->reactive(),
+                            ->live(),
                     ]),
                 Forms\Components\Section::make('Applicant')
                     ->description('Core applicant details (form_data JSON).')
