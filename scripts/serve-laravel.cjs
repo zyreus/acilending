@@ -10,14 +10,30 @@ const fs = require('fs')
 const path = require('path')
 const { getLaravelPort } = require('./laravel-dev-port.cjs')
 const { checkAmalgatedHealth } = require('./laravel-health.cjs')
-const { writeBindPort, clearBindPort } = require('./laravel-active-port.cjs')
+const {
+  writeBindPort,
+  clearBindPort,
+  clearStartStatus,
+  writeStartStatus,
+} = require('./laravel-active-port.cjs')
+const { loadDotenvLite } = require('./load-dotenv-lite.cjs')
 
 const apiDir = path.resolve(__dirname, '..', 'amalgated-lending-api')
 const artisan = path.join(apiDir, 'artisan')
+const routerScript = path.join(apiDir, 'server-router.php')
+const rootEnv = path.resolve(__dirname, '..', '.env')
+
+loadDotenvLite(rootEnv)
 
 if (!fs.existsSync(artisan)) {
   process.stderr.write(
     `Laravel not found. Expected artisan at:\n  ${artisan}\n`,
+  )
+  process.exit(1)
+}
+if (!fs.existsSync(routerScript)) {
+  process.stderr.write(
+    `Laravel router not found. Expected router at:\n  ${routerScript}\n`,
   )
   process.exit(1)
 }
@@ -64,6 +80,8 @@ function resolvePhpVersion(phpBinary) {
 
 async function main() {
   clearBindPort()
+  clearStartStatus()
+  writeStartStatus({ state: 'starting' })
   const php = process.env.PHP_BINARY || 'php'
   const phpCheck = await resolvePhpVersion(php)
   if (!phpCheck.ok || !isSupportedPhp(phpCheck.version)) {
@@ -75,9 +93,32 @@ async function main() {
         `Detected PHP version: ${detected} (binary: ${php}).\n` +
         `Set PHP_BINARY to a PHP ${MIN_PHP_MAJOR}.${MIN_PHP_MINOR}+ executable and retry.\n`,
     )
+    writeStartStatus({
+      state: 'failed',
+      reason: `PHP ${MIN_PHP_MAJOR}.${MIN_PHP_MINOR}+ is required; detected ${detected} (${php}).`,
+      code: 'UNSUPPORTED_PHP',
+    })
     process.exit(1)
   }
   const memoryLimit = process.env.LARAVEL_PHP_MEMORY_LIMIT || '256M'
+  const phpDir = path.dirname(php)
+  const runtimeExtDir = path.join(phpDir, 'ext')
+  const runtimePhpFlags = [
+    '-d',
+    `memory_limit=${memoryLimit}`,
+    '-d',
+    `extension_dir=${runtimeExtDir}`,
+    '-d',
+    'extension=mbstring',
+    '-d',
+    'extension=pdo_mysql',
+    '-d',
+    'extension=fileinfo',
+    '-d',
+    'extension=openssl',
+    '-d',
+    'extension=curl',
+  ]
   const preferred = Math.max(8000, parseInt(getLaravelPort(), 10) || 8000)
   const end = preferred + RANGE
 
@@ -85,6 +126,7 @@ async function main() {
     const st = await checkAmalgatedHealth(p)
     if (st === 'ok') {
       writeBindPort(p)
+      writeStartStatus({ state: 'ready', port: p, reused: true })
       process.stderr.write(
         `Laravel amalgated-lending-api already healthy on http://127.0.0.1:${p} — skipping duplicate php artisan serve.\n`,
       )
@@ -98,17 +140,38 @@ async function main() {
     }
     writeBindPort(p)
     process.stderr.write(
-      `Laravel dev server → http://127.0.0.1:${p} (set LARAVEL_PORT in .env to change the start of the scan)\n`,
+      `Laravel dev server → http://127.0.0.1:${p} (php -S; set LARAVEL_PORT in .env to change the start of the scan)\n`,
     )
     const child = spawn(
       php,
-      ['-d', `memory_limit=${memoryLimit}`, 'artisan', 'serve', '--host=127.0.0.1', `--port=${p}`],
+      [
+        ...runtimePhpFlags,
+        '-S',
+        `127.0.0.1:${p}`,
+        '-t',
+        'public',
+        'server-router.php',
+      ],
       { cwd: apiDir, stdio: 'inherit', shell: false },
     )
-    child.on('exit', (code) => process.exit(code ?? 1))
+    child.on('exit', (code) => {
+      if ((code ?? 1) !== 0) {
+        writeStartStatus({
+          state: 'failed',
+          reason: `php artisan serve exited with code ${code ?? 1}.`,
+          code: 'LARAVEL_EXITED',
+        })
+      }
+      process.exit(code ?? 1)
+    })
     return
   }
 
+  writeStartStatus({
+    state: 'failed',
+    reason: `No free port found from ${preferred} to ${end}.`,
+    code: 'NO_FREE_PORT',
+  })
   process.stderr.write(
     `No free port found from ${preferred} to ${end} (all in use or wrong app). Stop other servers or set LARAVEL_PORT.\n`,
   )
@@ -116,6 +179,11 @@ async function main() {
 }
 
 main().catch((err) => {
+  writeStartStatus({
+    state: 'failed',
+    reason: String(err && err.message ? err.message : err),
+    code: 'STARTUP_EXCEPTION',
+  })
   process.stderr.write(String(err && err.stack ? err.stack : err) + '\n')
   process.exit(1)
 })

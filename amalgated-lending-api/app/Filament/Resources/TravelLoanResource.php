@@ -5,8 +5,8 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\TravelLoanResource\Pages;
 use App\Models\TravelApplication;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 
@@ -25,7 +25,7 @@ class TravelLoanResource extends Resource
 
     protected static ?int $navigationSort = 20;
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $travelDocs = [];
         foreach (config('amalgated_loans.travel_documents') as $key => $meta) {
@@ -42,7 +42,7 @@ class TravelLoanResource extends Resource
                 ->required((bool) ($meta['required'] ?? false));
         }
 
-        return $form
+        return $schema
             ->schema([
                 Forms\Components\Select::make('user_id')
                     ->relationship('borrower', 'name')

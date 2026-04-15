@@ -9,11 +9,20 @@
 const fs = require('fs')
 const http = require('http')
 const path = require('path')
-const { writeActivePort, clearActivePort, readBindPort } = require('./laravel-active-port.cjs')
+const {
+  writeActivePort,
+  clearActivePort,
+  readBindPort,
+  readStartStatus,
+} = require('./laravel-active-port.cjs')
+const { loadDotenvLite } = require('./load-dotenv-lite.cjs')
+
+loadDotenvLite(path.resolve(__dirname, '..', '.env'))
 
 const host = process.env.LARAVEL_HOST || '127.0.0.1'
 const timeoutMs = Number(process.env.LARAVEL_WAIT_MS || 20000)
 const strictWait = String(process.env.LARAVEL_WAIT_STRICT || '').toLowerCase() === 'true'
+const bootGraceMs = Number(process.env.LARAVEL_BOOT_GRACE_MS || 3000)
 const intervalMs = 150
 
 function healthOk(port) {
@@ -57,6 +66,22 @@ async function main() {
     `Waiting for Laravel API (GET /api/v1/health → {"ok":true}) on the port from serve-laravel …\n`,
   )
   for (;;) {
+    const status = readStartStatus()
+    if (status && status.state === 'failed') {
+      process.stderr.write(
+        `Laravel startup failed: ${status.reason || 'unknown error'}\n` +
+          `  • Fix backend startup first (example: set PHP_BINARY to PHP 8.3+).\n`,
+      )
+      process.exit(1)
+    }
+    if (!status && strictWait && Date.now() - start > bootGraceMs) {
+      process.stderr.write(
+        `Laravel startup status not found after ${bootGraceMs}ms.\n` +
+          `  • Backend likely failed before reporting a bind port.\n` +
+          `  • Check "npm run serve:laravel" output first.\n`,
+      )
+      process.exit(1)
+    }
     const bind = readBindPort()
     if (bind) {
       if (await healthOk(bind)) {

@@ -6,8 +6,8 @@ use App\Filament\Resources\GeneralLoanApplicationResource\Pages;
 use App\Models\LoanApplication;
 use Closure;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 
@@ -27,7 +27,7 @@ class GeneralLoanApplicationResource extends Resource
 
     protected static ?int $navigationSort = 10;
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
         $unionDocs = [];
         foreach (config('amalgated_loans.general_documents') as $lt => $docs) {
@@ -78,7 +78,7 @@ class GeneralLoanApplicationResource extends Resource
             }
         }
 
-        return $form
+        return $schema
             ->schema([
                 Forms\Components\Grid::make(2)->schema([
                     Forms\Components\Select::make('user_id')

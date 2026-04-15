@@ -5,8 +5,8 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\DocumentLoanApplicationResource\Pages;
 use App\Models\DocumentLoanApplication;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
 
@@ -20,9 +20,9 @@ class DocumentLoanApplicationResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Lending';
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
+        return $schema
             ->schema([
                 Forms\Components\Section::make('Embedded uploads (borrower wizard)')
                     ->description('Same files as borrower Step 4. Disk: public · directory: documents/{application id}.')

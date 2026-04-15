@@ -3,6 +3,7 @@ const path = require('path')
 
 const FILE = path.join(__dirname, '.laravel-active-port')
 const BIND_FILE = path.join(__dirname, '.laravel-bind-port')
+const STATUS_FILE = path.join(__dirname, '.laravel-start-status.json')
 
 function writeBindPort(port) {
   fs.writeFileSync(BIND_FILE, String(port), 'utf8')
@@ -48,13 +49,44 @@ function readActivePort() {
   return null
 }
 
+function clearStartStatus() {
+  try {
+    fs.unlinkSync(STATUS_FILE)
+  } catch {
+    /* ignore */
+  }
+}
+
+function writeStartStatus(status) {
+  const payload = {
+    state: 'starting',
+    at: new Date().toISOString(),
+    ...(status || {}),
+  }
+  fs.writeFileSync(STATUS_FILE, JSON.stringify(payload, null, 2), 'utf8')
+}
+
+function readStartStatus() {
+  try {
+    const raw = fs.readFileSync(STATUS_FILE, 'utf8')
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 module.exports = {
   FILE,
   BIND_FILE,
+  STATUS_FILE,
   writeBindPort,
   clearBindPort,
   readBindPort,
   writeActivePort,
   clearActivePort,
   readActivePort,
+  clearStartStatus,
+  writeStartStatus,
+  readStartStatus,
 }
