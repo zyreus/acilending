@@ -1,7 +1,9 @@
-import { laravelRequest } from '../../utils/lendingLaravelApi.js'
+import { laravelRequest, normalizeLaravelApiBase } from '../../utils/lendingLaravelApi.js'
 
 /** Default display / docs; actual requests use {@link laravelRequest} multi-base resolution. */
-const API_BASE = (import.meta.env.VITE_LENDING_API_URL || 'http://127.0.0.1:8000/api/v1').replace(/\/$/, '')
+const API_BASE = (
+  normalizeLaravelApiBase(import.meta.env.VITE_LENDING_API_URL || '') || '/api/v1'
+).replace(/\/$/, '')
 
 const TOKEN_KEY = 'admin_token'
 
@@ -45,8 +47,9 @@ export async function api(path, options = {}) {
       }
       if (!msg && res.status === 404) {
         const p = String(import.meta.env.VITE_BACKEND_PORT || '8000')
-        msg =
-          `Lending API returned 404. Run \`npm run dev\` (starts Laravel + Vite) or \`npm run serve:laravel\` in another terminal so http://127.0.0.1:${p}/api/v1/health returns {"ok":true}.`
+        msg = import.meta.env.DEV
+          ? `Lending API returned 404. Run \`npm run dev\` (starts Laravel + Vite) or \`npm run serve:laravel\` in another terminal so http://127.0.0.1:${p}/api/v1/health returns {"ok":true}.`
+          : 'Lending API returned 404. Check API docroot, APP_URL, and that the SPA was built with VITE_LENDING_API_URL if the API is on another host.'
       }
       if (!msg) msg = `HTTP ${res.status}`
       const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
@@ -89,8 +92,9 @@ export async function api(path, options = {}) {
     }
     if (!msg && res.status === 404) {
       const p = String(import.meta.env.VITE_BACKEND_PORT || '8000')
-      msg =
-        `Lending API returned 404. Run \`npm run dev\` (starts Laravel + Vite) or \`npm run serve:laravel\` so http://127.0.0.1:${p}/api/v1/health returns {"ok":true}.`
+      msg = import.meta.env.DEV
+        ? `Lending API returned 404. Run \`npm run dev\` (starts Laravel + Vite) or \`npm run serve:laravel\` so http://127.0.0.1:${p}/api/v1/health returns {"ok":true}.`
+        : 'Lending API returned 404. Check API docroot, APP_URL, and that the SPA was built with VITE_LENDING_API_URL if the API is on another host.'
     }
     if (!msg) msg = `HTTP ${res.status}`
     const err = new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))

@@ -14,11 +14,11 @@ class DocumentLoanApplicationResource extends Resource
 {
     protected static ?string $model = DocumentLoanApplication::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-text';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-document-text';
 
     protected static ?string $navigationLabel = 'Document loan applications';
 
-    protected static ?string $navigationGroup = 'Lending';
+    protected static string|\UnitEnum|null $navigationGroup = 'Lending';
 
     public static function form(Form $form): Form
     {

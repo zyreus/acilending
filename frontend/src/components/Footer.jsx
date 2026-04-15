@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 
-const AMALGATED_HOLDINGS_URL = import.meta.env.VITE_AMALGATED_HOLDINGS_URL || 'http://localhost:5173'
+const AMALGATED_HOLDINGS_URL = import.meta.env.VITE_AMALGATED_HOLDINGS_URL || 'https://amalgatedholdings.com'
 
 export default function Footer() {
   return (

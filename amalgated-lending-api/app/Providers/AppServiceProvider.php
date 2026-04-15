@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Services\ActivityLogger;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -28,6 +29,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        $appUrl = (string) config('app.url', '');
+        if ($appUrl !== '' && str_starts_with($appUrl, 'https://')) {
+            URL::forceScheme('https');
+        }
+
         ResetPassword::createUrlUsing(function ($user, string $token) {
             $base = rtrim((string) Config::get('app.frontend_url', 'http://localhost:5173'), '/');
 

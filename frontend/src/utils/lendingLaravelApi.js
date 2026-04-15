@@ -5,6 +5,12 @@
 
 const STORAGE_KEY = 'lending_laravel_working_api_base'
 
+function isLoopbackHostname(host) {
+  if (!host) return true
+  const h = String(host).toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]'
+}
+
 function addBase(bases, b) {
   const s = b === '' || b == null ? '' : String(b).replace(/\/$/, '')
   if (!bases.includes(s)) bases.push(s)
@@ -35,8 +41,15 @@ function buildUrl(base, path) {
 export function laravelApiBases() {
   const bases = []
   const explicit = (import.meta.env.VITE_LENDING_API_URL || '').trim().replace(/\/$/, '')
+  const winHost =
+    typeof window !== 'undefined' && window.location?.hostname ? String(window.location.hostname) : ''
+  const onPublicHost = !isLoopbackHostname(winHost)
 
-  // Dev: same-origin `/api/v1` via Vite proxy first — avoids stale localStorage like `http://127.0.0.1:8000` (missing /api/v1).
+  if (explicit) {
+    addBase(bases, normalizeLaravelApiBase(explicit))
+  }
+
+  // Dev: same-origin `/api/v1` via Vite proxy — avoids stale localStorage like `http://127.0.0.1:8000` (missing /api/v1).
   if (typeof window !== 'undefined' && import.meta.env.DEV) {
     addBase(bases, '')
   }
@@ -47,8 +60,8 @@ export function laravelApiBases() {
       if (saved != null) {
         const normalized = normalizeLaravelApiBase(saved)
         const loopback = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(normalized)
-        // In dev, ignore cached loopback bases — they pin :8000 while Laravel may bind :8001+.
-        if (!import.meta.env.DEV || !loopback) {
+        // Ignore cached loopback bases in dev (port drift) and on a real deployed host (stale after local testing).
+        if (!loopback || isLoopbackHostname(winHost)) {
           addBase(bases, normalized)
         }
       }
@@ -57,17 +70,21 @@ export function laravelApiBases() {
     /* ignore */
   }
 
-  if (explicit) addBase(bases, normalizeLaravelApiBase(explicit))
+  // Production, no build-time API URL: same-origin `/api/v1` (Laravel docroot same as SPA) or subdomain URL in .env.production.
+  if (typeof window !== 'undefined' && import.meta.env.PROD && onPublicHost && !explicit) {
+    addBase(bases, '')
+  }
 
   const backendPort = String(import.meta.env.VITE_BACKEND_PORT || '8000')
-  if (typeof window !== 'undefined') {
-    const h = window.location.hostname
-    if (h === 'localhost' || h === '127.0.0.1') {
-      addBase(bases, normalizeLaravelApiBase(`http://127.0.0.1:${backendPort}`))
-    }
+  if (typeof window !== 'undefined' && isLoopbackHostname(winHost)) {
+    addBase(bases, normalizeLaravelApiBase(`http://127.0.0.1:${backendPort}`))
   }
+
   if (bases.length === 0) {
-    addBase(bases, normalizeLaravelApiBase(explicit || `http://127.0.0.1:${backendPort}`))
+    addBase(
+      bases,
+      onPublicHost ? '' : normalizeLaravelApiBase(explicit || `http://127.0.0.1:${backendPort}`),
+    )
   }
   return bases
 }
@@ -89,22 +106,18 @@ export function getLaravelPublicOrigin() {
   const apiUrl = (import.meta.env.VITE_LENDING_API_URL || '').trim()
   if (apiUrl) {
     try {
-      const withProto = apiUrl.startsWith('http') ? apiUrl : `http://${apiUrl}`
+      const withProto = apiUrl.startsWith('http') ? apiUrl : `https://${apiUrl}`
       const u = new URL(withProto)
       return `${u.protocol}//${u.host}`
     } catch {
       /* fall through */
     }
   }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin
+  }
   const port = String(import.meta.env.VITE_BACKEND_PORT || '8000')
-  const host =
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      ? '127.0.0.1'
-      : typeof window !== 'undefined'
-        ? window.location.hostname
-        : '127.0.0.1'
-  return `http://${host}:${port}`
+  return `http://127.0.0.1:${port}`
 }
 
 /**

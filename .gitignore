@@ -3,6 +3,7 @@ dist
 dist-ssr
 *.local
 .env
+.env.production
 scripts/.laravel-active-port
 scripts/.laravel-bind-port
 .DS_Store

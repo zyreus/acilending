@@ -1,5 +1,6 @@
 # Single-page app (Vite build) on Apache / cPanel.
-# Copied to dist/ root on `npm run build`.
+# Copied to dist/ root on `npm run build`. Upload dist/* to amalgatedlending.com document root.
+# If the site lives in a subfolder, set RewriteBase /that-folder/ (otherwise / is fine).
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /

@@ -19,11 +19,11 @@ class GeneralLoanApplicationResource extends Resource
 {
     protected static ?string $model = LoanApplication::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-collection';
+    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-collection';
 
     protected static ?string $navigationLabel = 'General loan applications';
 
-    protected static ?string $navigationGroup = 'Lending';
+    protected static string|\UnitEnum|null $navigationGroup = 'Lending';
 
     protected static ?int $navigationSort = 10;
 
