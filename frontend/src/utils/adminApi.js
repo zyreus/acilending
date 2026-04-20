@@ -8,7 +8,6 @@
 const STORAGE_KEY = 'lending_admin_working_api_origin'
 
 const API_BASE = (import.meta.env.VITE_CHAT_SERVER_URL || '').trim().replace(/\/$/, '')
-const BACKEND_PORT = String(import.meta.env.VITE_BACKEND_PORT || '8000').trim()
 
 function addBase(bases, b) {
   const s = b === '' || b == null ? '' : String(b).replace(/\/$/, '')
@@ -32,14 +31,6 @@ export function adminApiBases() {
     addBase(bases, '')
   }
   if (API_BASE) addBase(bases, API_BASE)
-  if (typeof window !== 'undefined') {
-    const h = window.location.hostname
-    if (h === 'localhost' || h === '127.0.0.1') {
-      for (const p of [BACKEND_PORT, '8010', '8001', '8000', '3000']) {
-        if (p) addBase(bases, `http://127.0.0.1:${p}`)
-      }
-    }
-  }
   if (bases.length === 0) addBase(bases, '')
   return bases
 }

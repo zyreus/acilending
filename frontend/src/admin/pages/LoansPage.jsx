@@ -6,6 +6,16 @@ import { useAdminApiAuth } from '../context/useAdminApiAuth.js'
 import { downloadCsv, openPrintPdf } from '../utils/export.js'
 import { admin, TableSkeletonRows, EmptyTableRow } from '../components/AdminUi.jsx'
 
+function formatLoanRateMonthly(loan) {
+  const payloadRate = Number(loan?.application_payload?.selected_interest_rate)
+  if (Number.isFinite(payloadRate) && payloadRate > 0) {
+    return `${payloadRate.toFixed(4)}%`
+  }
+  const annual = Number(loan?.annual_interest_rate)
+  if (!Number.isFinite(annual) || annual <= 0) return '—'
+  return `${(annual / 12).toFixed(4)}%`
+}
+
 export default function LoansPage() {
   const { can } = useAdminApiAuth()
   const { showToast } = useToast()
@@ -42,7 +52,7 @@ export default function LoansPage() {
     loan.principal,
     loan.status,
     loan.term_months,
-    loan.annual_interest_rate,
+    formatLoanRateMonthly(loan),
     loan.created_at || '',
   ])
 
@@ -50,7 +60,7 @@ export default function LoansPage() {
     const suffix = status || 'all'
     downloadCsv(
       `loans-${suffix}.csv`,
-      ['ID', 'Borrower', 'Borrower Email', 'Principal', 'Status', 'Term (months)', 'Rate (%)', 'Created At'],
+      ['ID', 'Borrower', 'Borrower Email', 'Principal', 'Status', 'Term (months)', 'Rate Monthly (%)', 'Created At'],
       exportRows,
     )
     showToast('Loans CSV downloaded.', 'success')
@@ -69,7 +79,7 @@ export default function LoansPage() {
         `PHP ${Number(loan.principal || 0).toLocaleString()}`,
         loan.status,
         `${loan.term_months} mo`,
-        `${loan.annual_interest_rate}%`,
+        formatLoanRateMonthly(loan),
       ]),
     )
     if (!ok) showToast('Please allow popups to export PDF.', 'error')
@@ -161,7 +171,7 @@ export default function LoansPage() {
                 </div>
                 <div>
                   <p className={`text-xs ${admin.textMuted}`}>Term / Rate</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">{loan.term_months} mo · {loan.annual_interest_rate}%</p>
+              <p className="font-medium text-gray-900 dark:text-gray-100">{loan.term_months} mo · {formatLoanRateMonthly(loan)}</p>
                 </div>
               </div>
               <Link
@@ -208,7 +218,7 @@ export default function LoansPage() {
                   <td className={admin.tableCell}>₱{Number(loan.principal).toLocaleString()}</td>
                   <td className={`${admin.tableCell} capitalize`}>{loan.status}</td>
                   <td className={admin.tableCell}>{loan.term_months} mo</td>
-                  <td className={`${admin.tableCell} tabular-nums ${admin.tableMuted}`}>{loan.annual_interest_rate}%</td>
+                  <td className={`${admin.tableCell} tabular-nums ${admin.tableMuted}`}>{formatLoanRateMonthly(loan)}</td>
                   <td className={`${admin.tableCell} text-right`}>
                     <Link
                       to={`/admin/loans/${loan.id}`}

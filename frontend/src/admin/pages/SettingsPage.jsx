@@ -36,7 +36,6 @@ const DEFAULTS = {
   },
   credit_scoring: { enabled: true, base_score: 650 },
   security: { two_factor_enabled: false, max_login_attempts: 5, session_timeout_minutes: 60, password_min_length: 8 },
-  branding: { primary_color: '#ff0000', background_color: '#000000', logo_url: null },
   reports: { default_range: 'last_30_days', export_pdf: true, export_excel: true, show_metrics: true },
   integrations: { crm_enabled: false, chat_enabled: true, api_keys: '' },
   audit: { change_tracking_enabled: true, login_history_enabled: true, activity_logs_enabled: true },
@@ -53,7 +52,6 @@ const LABELS = {
   email_settings: 'Email & Notifications',
   credit_scoring: 'Credit Scoring',
   security: 'Security',
-  branding: 'System Appearance',
   reports: 'Reports & Analytics',
   integrations: 'Integrations',
   audit: 'Audit Logs',
@@ -101,14 +99,6 @@ function SectionIcon({ name }) {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      </svg>
-    )
-  }
-  if (name === 'theme') {
-    return (
-      <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364l-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0l-1.414-1.414M7.05 7.05 5.636 5.636" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18a6 6 0 100-12 6 6 0 000 12z" />
       </svg>
     )
   }
@@ -206,7 +196,6 @@ export default function SettingsPage() {
   const [sections, setSections] = useState(DEFAULTS)
   const [initialSections, setInitialSections] = useState(DEFAULTS)
   const [jsonByKey, setJsonByKey] = useState(Object.fromEntries(Object.entries(DEFAULTS).map(([k, v]) => [k, JSON.stringify(v, null, 2)])))
-  const branding = useMemo(() => sections.branding || DEFAULTS.branding, [sections.branding])
   const [query, setQuery] = useState('')
   const [activeKey, setActiveKey] = useState('company')
   const sectionRefs = useRef({})
@@ -264,7 +253,6 @@ export default function SettingsPage() {
       'email_settings',
       'credit_scoring',
       'security',
-      'branding',
       'reports',
       'integrations',
       'audit',
@@ -328,12 +316,6 @@ export default function SettingsPage() {
         title: 'Security Settings',
         icon: 'security',
         subtitle: 'Password rules, session timeout, login limits.',
-      },
-      {
-        key: 'branding',
-        title: 'System Appearance',
-        icon: 'theme',
-        subtitle: 'Theme preferences and brand colors.',
       },
       {
         key: 'integrations',
@@ -405,7 +387,7 @@ export default function SettingsPage() {
           <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <h1 className={admin.pageTitle}>Admin settings</h1>
-              <p className={admin.pageSubtitle}>Manage defaults, security, notifications, and appearance — responsive on all devices.</p>
+              <p className={admin.pageSubtitle}>Manage defaults, security, and notifications — responsive on all devices.</p>
             </div>
             <div className="w-full min-w-0 lg:max-w-md">
               <label className="sr-only" htmlFor="settings-search">
@@ -892,38 +874,6 @@ export default function SettingsPage() {
                   onChange={(v) => patch('security', { two_factor_enabled: v })}
                   helper="Adds an extra layer of security for admins (UI-ready)."
                 />
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard id="branding" title="System Appearance" icon="theme" subtitle="Brand colors and UI style.">
-            <div className="grid min-w-0 gap-4 md:grid-cols-2">
-              <div className="min-w-0">
-                <FieldLabel label="Primary brand color" htmlFor="brand-primary" helper="Hex color (e.g. #DC2626)." />
-                <input
-                  id="brand-primary"
-                  className={`mt-1 w-full ${admin.input}`}
-                  value={sections.branding.primary_color || ''}
-                  onChange={(e) => patch('branding', { primary_color: e.target.value })}
-                />
-              </div>
-              <div className="min-w-0">
-                <FieldLabel label="Background color" htmlFor="brand-bg" />
-                <input
-                  id="brand-bg"
-                  className={`mt-1 w-full ${admin.input}`}
-                  value={sections.branding.background_color || ''}
-                  onChange={(e) => patch('branding', { background_color: e.target.value })}
-                />
-              </div>
-              <div
-                className="md:col-span-2 rounded-xl border border-gray-200 p-4 dark:border-[#1F2937]"
-                style={{ background: branding.background_color || '#f3f4f6' }}
-              >
-                <p className="text-sm font-semibold" style={{ color: branding.primary_color || '#DC2626' }}>
-                  Preview: Primary color
-                </p>
-                <p className="mt-1 text-xs text-gray-700 dark:text-gray-200">This is a UI preview only; theme wiring can be connected later.</p>
               </div>
             </div>
           </SectionCard>

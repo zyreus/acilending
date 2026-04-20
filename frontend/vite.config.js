@@ -25,7 +25,8 @@ function readLaravelActivePort() {
 
 // https://vite.dev/config/ — aligned with Amalgated Holdings (proxy + VITE_BACKEND_PORT for adminApi fallbacks)
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '')
+  /** Env files live at repo root (same folder as `package.json`), not `frontend/`. */
+  const env = loadEnv(mode, projectRoot, '')
   const fromWaitLocal = env.VITE_API_PROXY_TARGET || (env.VITE_BACKEND_PORT && `http://127.0.0.1:${env.VITE_BACKEND_PORT}`)
   const laravelPort =
     env.VITE_BACKEND_PORT ||
@@ -51,6 +52,11 @@ export default defineConfig(({ mode }) => {
       target: proxyTarget,
       changeOrigin: true,
     },
+    /** Laravel signed print views (/print/general-loan, /print/loan-soa, …) — same host as API. */
+    '/print': {
+      target: proxyTarget,
+      changeOrigin: true,
+    },
     '/health': { target: proxyTarget, changeOrigin: true },
     /** Kept for any same-origin tooling; main app uses direct origin for Socket.IO to avoid WS proxy noise. */
     '/socket.io': { target: chatTarget, changeOrigin: true, ws: true },
@@ -58,6 +64,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     root: __dirname,
+    envDir: projectRoot,
     define: {
       'import.meta.env.VITE_BACKEND_PORT': JSON.stringify(String(apiPort)),
     },

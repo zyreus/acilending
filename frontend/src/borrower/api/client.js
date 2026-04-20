@@ -47,9 +47,8 @@ export async function borrowerApi(path, options = {}) {
       if (flat.length) msg = flat.join(' ')
     }
     if (!msg && res.status === 404) {
-      const p = String(import.meta.env.VITE_BACKEND_PORT || '8000')
       msg = import.meta.env.DEV
-        ? `Lending API returned 404. Run \`npm run dev\` (starts Laravel + Vite) or \`npm run serve:laravel\` so http://127.0.0.1:${p}/api/v1/health returns {"ok":true}.`
+        ? 'Lending API returned 404. Run `npm run dev` (starts Laravel + Vite) or `npm run serve:laravel`, then verify `/api/v1/health` returns {"ok":true}.'
         : 'Lending API returned 404. Check API docroot, APP_URL, and that the SPA was built with VITE_LENDING_API_URL if the API is on another host.'
     }
     const err = new Error(msg || `HTTP ${res.status}`)

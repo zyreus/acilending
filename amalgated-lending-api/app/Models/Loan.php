@@ -37,6 +37,9 @@ class Loan extends Model
         'admin_notes',
     ];
 
+    /** Human-facing ref (not a DB column) — e.g. LN-000006 for id 6. */
+    protected $appends = ['loan_number'];
+
     protected $casts = [
         'principal' => 'decimal:2',
         'annual_interest_rate' => 'decimal:4',
@@ -51,6 +54,11 @@ class Loan extends Model
         'disbursed_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
+
+    public function getLoanNumberAttribute(): string
+    {
+        return 'LN-'.str_pad((string) $this->getKey(), 6, '0', STR_PAD_LEFT);
+    }
 
     public function borrower(): BelongsTo
     {

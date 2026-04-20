@@ -6,10 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\LoanApplication;
 use App\Models\Role;
 use App\Models\User;
+use App\Support\SignedPrintUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\URL;
 
 class BorrowerController extends Controller
 {
@@ -78,15 +78,27 @@ class BorrowerController extends Controller
 
         $borrower->loans->each(function ($loan) {
             $la = $loan->loanApplication;
-            if (! $la) {
-                $loan->setAttribute('print_application_url', null);
-                return;
-            }
-            $loan->setAttribute('print_application_url', URL::temporarySignedRoute(
-                'print.general-loan',
-                now()->addMinutes(45),
-                ['loanApplication' => $la->id]
-            ));
+            $loan->setAttribute(
+                'print_application_url',
+                $la
+                    ? SignedPrintUrls::temporaryRoute(
+                        'print.general-loan',
+                        now()->addMinutes(45),
+                        ['loanApplication' => $la->id]
+                    )
+                    : null
+            );
+            $hasSchedule = is_array($loan->schedule_json) && count($loan->schedule_json) > 0;
+            $loan->setAttribute(
+                'print_statement_url',
+                $hasSchedule
+                    ? SignedPrintUrls::temporaryRoute(
+                        'print.loan-soa',
+                        now()->addMinutes(45),
+                        ['loan' => $loan->id]
+                    )
+                    : null
+            );
         });
 
         return response()->json(['ok' => true, 'borrower' => $borrower]);

@@ -153,7 +153,7 @@ class LoanController extends Controller
                 'email' => 'required|email',
                 'name' => 'required|string|max:255',
                 'phone' => 'nullable|string|max:32',
-                'password' => 'nullable|string|min:8|max:72',
+                'password' => 'required|string|min:8|max:72',
                 'principal' => 'required|numeric|min:1000',
                 'term_months' => 'required|integer|min:1|max:360',
                 'application_payload' => 'nullable|string',
@@ -171,7 +171,7 @@ class LoanController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|min:1|max:360',
             'application_payload' => 'nullable|array',
@@ -202,7 +202,7 @@ class LoanController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|min:1|max:360',
             'application_payload' => 'nullable|array',
@@ -326,14 +326,18 @@ class LoanController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your loan application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);
@@ -366,14 +370,18 @@ class LoanController extends Controller
             ? 'Loan application update: rejected — Amalgated Lending'
             : 'Loan application update: approved — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

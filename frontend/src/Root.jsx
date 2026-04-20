@@ -51,6 +51,7 @@ import BorrowerSecurityPage from './borrower/pages/BorrowerSecurityPage.jsx'
 import BorrowerProfilePage from './borrower/pages/BorrowerProfilePage.jsx'
 import BorrowerLoanWizardPage from './borrower/pages/BorrowerLoanWizardPage.jsx'
 import BorrowerNotificationsPage from './borrower/pages/BorrowerNotificationsPage.jsx'
+import BorrowerApplicationsPage from './borrower/pages/BorrowerApplicationsPage.jsx'
 import AdminLoginPage from './admin/pages/AdminLoginPage.jsx'
 import AdminForgotPasswordPage from './admin/pages/AdminForgotPasswordPage.jsx'
 import AdminLoanProductsPage from './admin/pages/AdminLoanProductsPage.jsx'
@@ -60,6 +61,10 @@ import ResetPasswordPage from './pages/ResetPasswordPage.jsx'
 function LendingChatWidgetGate() {
   const { pathname } = useLocation()
   if (pathname.startsWith('/admin') || pathname.startsWith('/borrower')) return null
+  // Production build without VITE_CHAT_SERVER_URL would otherwise use `window.location.origin` for Socket.IO,
+  // but the marketing site is static HTML — no `/socket.io` server → endless failed WebSocket retries.
+  const chatConfigured = (import.meta.env.VITE_CHAT_SERVER_URL || '').trim()
+  if (import.meta.env.PROD && !chatConfigured) return null
   return <LendingChatWidget />
 }
 
@@ -131,6 +136,7 @@ export default function Root() {
                 )}
               >
                 <Route path="dashboard" element={<BorrowerDashboardPage />} />
+                <Route path="applications" element={<BorrowerApplicationsPage />} />
                 <Route path="notifications" element={<BorrowerNotificationsPage />} />
                 <Route path="payments" element={<BorrowerPaymentsPage />} />
                 <Route path="chat" element={<BorrowerChatPage />} />

@@ -124,7 +124,10 @@
     $coreKeys = ['full_name', 'email', 'phone', 'address', 'city', 'province'];
     $metaSkipKeys = ['extended_application_form', 'co_maker_statement', 'loan_product_slug', 'loan_product_type', 'loan_type'];
     $skipRemainingKeys = array_merge($coreKeys, $metaSkipKeys);
-    $printValue = function ($value) use (&$printValue, $na) {
+    $printValue = function ($value, int $depth = 0) use (&$printValue, $na) {
+        if ($depth > 25) {
+            return '…';
+        }
         if (is_null($value) || $value === '') {
             return $na($value);
         }
@@ -137,15 +140,15 @@
         if (is_array($value)) {
             $isAssoc = array_keys($value) !== range(0, count($value) - 1);
             if (! $isAssoc) {
-                $items = array_map(function ($v) use (&$printValue) {
-                    return $printValue($v);
+                $items = array_map(function ($v) use (&$printValue, $depth) {
+                    return $printValue($v, $depth + 1);
                 }, $value);
                 return implode(', ', array_filter($items, fn ($v) => $v !== ''));
             }
             $lines = [];
             foreach ($value as $k => $v) {
                 $label = str_replace('_', ' ', (string) $k);
-                $lines[] = $label.': '.$printValue($v);
+                $lines[] = $label.': '.$printValue($v, $depth + 1);
             }
             return implode("\n", $lines);
         }
@@ -162,9 +165,9 @@
     $collateralOther = is_array($extForm['collateral_other'] ?? null) ? $extForm['collateral_other'] : [];
     $bankReferences = is_array($extForm['bank_references'] ?? null) ? $extForm['bank_references'] : [];
     $obligations = is_array($extForm['outstanding_obligations'] ?? null) ? $extForm['outstanding_obligations'] : [];
-    $fullName = $applicant['name'] ?? ($form['full_name'] ?? ($borrower->name ?? null));
-    $email = $applicant['email'] ?? ($form['email'] ?? ($borrower->email ?? null));
-    $phone = $applicant['mobile_phone'] ?? ($form['phone'] ?? ($borrower->phone ?? null));
+    $fullName = $applicant['name'] ?? ($form['full_name'] ?? ($borrower?->name ?? null));
+    $email = $applicant['email'] ?? ($form['email'] ?? ($borrower?->email ?? null));
+    $phone = $applicant['mobile_phone'] ?? ($form['phone'] ?? ($borrower?->phone ?? null));
     $cats = [
         !empty($loanCategories['businessLoan']) ? 'Business Loans' : null,
         !empty($loanCategories['chattelMortgage']) ? 'Chattel Mortgage' : null,

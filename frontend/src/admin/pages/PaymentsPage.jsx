@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api/client.js'
 import { useToast } from '../context/ToastContext.jsx'
 import { admin, TableSkeletonRows, EmptyTableRow } from '../components/AdminUi.jsx'
@@ -23,6 +24,58 @@ function getBorrowerEmail(payment) {
 
 function normalizeName(value) {
   return String(value || '').trim().toLowerCase()
+}
+
+/** Parse admin loan filter: #6, 6, LN-000006, ln-000006 */
+function parseLoanSearchToId(raw) {
+  const t = String(raw || '').trim().toLowerCase()
+  if (!t) return null
+  const ln = /^ln-0*(\d+)$/.exec(t)
+  if (ln) return ln[1]
+  const hash = /^#?(\d+)$/.exec(t)
+  if (hash) return hash[1]
+  return null
+}
+
+function paymentLoanId(p) {
+  const id = p?.loan_id ?? p?.loan?.id
+  return id != null && id !== '' ? String(id) : ''
+}
+
+/** LN-000006 style for numeric id (matches Laravel Loan accessor). */
+function formatLoanNumberFromId(id) {
+  const s = String(id ?? '').replace(/\D/g, '')
+  if (!s) return ''
+  return `LN-${s.padStart(6, '0')}`
+}
+
+function paymentMatchesLoanSearch(p, rawQuery) {
+  const raw = String(rawQuery || '').trim()
+  const q = raw.toLowerCase()
+  if (!q) return true
+  const loanId = paymentLoanId(p)
+  const idFromQuery = parseLoanSearchToId(raw)
+  if (idFromQuery && loanId === idFromQuery) return true
+  const padded = formatLoanNumberFromId(loanId).toLowerCase()
+  const hash = loanId ? `#${loanId}` : ''
+  const labels = [
+    loanId,
+    hash,
+    padded,
+    String(p.loanNumber || '').toLowerCase(),
+    String(p.loan?.loan_number || '').toLowerCase(),
+    String(p.loan?.reference_number || '').toLowerCase(),
+  ].filter(Boolean)
+  return labels.some((c) => c === q || c.includes(q) || q.includes(c.replace(/^#/, '')))
+}
+
+/** Unpaid installment (still has balance or not marked paid). */
+function hasOutstandingBalance(p) {
+  const s = String(p.status || '').toLowerCase()
+  if (s === 'paid' || s === 'waived') return false
+  const due = Number(p.amount_due || 0)
+  const paid = Number(p.amount_paid || 0)
+  return due - paid > 0.009
 }
 
 /** Borrower upload modal sends `reference_number`; API may use variants. */
@@ -96,6 +149,7 @@ function hasBorrowerPaymentEvidence(payment) {
 
 export default function PaymentsPage() {
   const { showToast } = useToast()
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState(null)
   const [borrowersData, setBorrowersData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -104,16 +158,31 @@ export default function PaymentsPage() {
   const [borrowerFilter, setBorrowerFilter] = useState('')
   const [borrowerNameFilter, setBorrowerNameFilter] = useState('')
   const [loanNumberFilter, setLoanNumberFilter] = useState('')
+  const [loanSearchDebounced, setLoanSearchDebounced] = useState('')
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setLoanSearchDebounced(loanNumberFilter.trim())
+    }, 350)
+    return () => window.clearTimeout(t)
+  }, [loanNumberFilter])
+
+  const loadBorrowers = async () => {
+    try {
+      const borrowersRes = await api('/borrowers?per_page=500')
+      setBorrowersData(borrowersRes?.data?.data || [])
+    } catch (e) {
+      showToast(e.message, 'error')
+    }
+  }
 
   const loadPayments = async () => {
     setLoading(true)
     try {
-      const [paymentsRes, borrowersRes] = await Promise.all([
-        api('/payments?per_page=200'),
-        api('/borrowers?per_page=500'),
-      ])
+      const qs = new URLSearchParams({ per_page: '200' })
+      if (loanSearchDebounced) qs.set('loan_search', loanSearchDebounced)
+      const paymentsRes = await api(`/payments?${qs.toString()}`)
       setData(paymentsRes.data)
-      setBorrowersData(borrowersRes?.data?.data || [])
     } catch (e) {
       showToast(e.message, 'error')
     } finally {
@@ -122,8 +191,17 @@ export default function PaymentsPage() {
   }
 
   useEffect(() => {
-    loadPayments()
+    void loadBorrowers()
   }, [])
+
+  useEffect(() => {
+    const q = (searchParams.get('loan_search') || searchParams.get('loan') || '').trim()
+    if (q) setLoanNumberFilter(q)
+  }, [searchParams])
+
+  useEffect(() => {
+    void loadPayments()
+  }, [loanSearchDebounced])
 
   const rows = useMemo(() => {
     const byId = new Map()
@@ -144,11 +222,13 @@ export default function PaymentsPage() {
         p?.account_name ||
         p?.loan?.borrower?.name ||
         '—'
+      const loanIdStr = String(p?.loan_id ?? p?.loan?.id ?? '').trim()
       const loanNumber =
         p?.loan_number ||
         p?.loan?.loan_number ||
+        (loanIdStr ? formatLoanNumberFromId(loanIdStr) : '') ||
         p?.loan?.reference_number ||
-        p?.loan_id ||
+        loanIdStr ||
         ''
       const borrowerId =
         p?.borrower_id ||
@@ -199,9 +279,9 @@ export default function PaymentsPage() {
       next = next.filter((p) => p.borrowerName.toLowerCase().includes(borrowerQ))
     }
 
-    const loanQ = loanNumberFilter.trim().toLowerCase()
+    const loanQ = loanNumberFilter.trim()
     if (loanQ) {
-      next = next.filter((p) => p.loanNumber.toLowerCase().includes(loanQ))
+      next = next.filter((p) => paymentMatchesLoanSearch(p, loanQ) && hasOutstandingBalance(p))
     }
 
     return next
@@ -234,6 +314,11 @@ export default function PaymentsPage() {
         showToast(
           'Payment confirmed, but the receipt email failed to send. Check API mail settings (MAIL_HOST, SMTP).',
           'error',
+        )
+      } else if (res.receipt_email_note === 'mail_logged_only') {
+        showToast(
+          'Payment confirmed. Receipt email transport is unavailable, so the message was written to API logs instead.',
+          'success',
         )
       } else {
         showToast('Payment confirmed.', 'success')
@@ -285,7 +370,7 @@ export default function PaymentsPage() {
             <input
               value={loanNumberFilter}
               onChange={(e) => setLoanNumberFilter(e.target.value)}
-              placeholder="e.g. LN-000123"
+              placeholder="e.g. #6 or LN-000006"
               className={`mt-1 w-full ${admin.input}`}
             />
           </label>
@@ -293,6 +378,12 @@ export default function PaymentsPage() {
         {borrowerFilter ? (
           <p className={`mt-2 text-xs ${admin.textMuted}`}>
             Showing pending payments for <span className="font-semibold">{borrowerFilter}</span>.
+          </p>
+        ) : null}
+        {loanNumberFilter.trim() ? (
+          <p className={`mt-2 text-xs ${admin.textMuted}`}>
+            Showing unpaid installments (due balance) for loans matching{' '}
+            <span className="font-mono font-semibold">{loanNumberFilter.trim()}</span>.
           </p>
         ) : null}
       </div>
@@ -318,7 +409,8 @@ export default function PaymentsPage() {
                 return (
                   <>
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {p.loanNumber ? `Loan #${p.loanNumber}` : `Loan #${p.loan_id}`} · Installment {p.installment_no}
+                Loan {paymentLoanId(p) ? `#${paymentLoanId(p)}` : '—'}
+                {p.loanNumber ? ` (${p.loanNumber})` : ''} · Installment {p.installment_no}
               </p>
               <p className={`text-xs ${admin.textMuted}`}>Borrower: {p.borrowerName}</p>
               <p className={`text-xs ${admin.textMuted}`}>Due: {formatDueDate(p.due_date)}</p>
@@ -404,7 +496,18 @@ export default function PaymentsPage() {
                     return (
                       <>
                   <td className={`${admin.tableCell} whitespace-nowrap`}>{p.borrowerName}</td>
-                  <td className={`${admin.tableCell} whitespace-nowrap`}>#{p.loanNumber || p.loan_id}</td>
+                  <td className={`${admin.tableCell} whitespace-nowrap`}>
+                    {paymentLoanId(p) ? (
+                      <>
+                        <span className="font-medium">#{paymentLoanId(p)}</span>
+                        {p.loanNumber ? (
+                          <span className={`ml-1 text-xs ${admin.textMuted}`}>({p.loanNumber})</span>
+                        ) : null}
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className={`${admin.tableCell} whitespace-nowrap`}>{p.installment_no}</td>
                   <td className={`${admin.tableCell} whitespace-nowrap`}>{formatDueDate(p.due_date)}</td>
                   <td className={`${admin.tableCell} whitespace-nowrap`}>₱{Number(p.amount_due).toLocaleString()}</td>
@@ -453,7 +556,13 @@ export default function PaymentsPage() {
               Mark this installment as paid for <span className="font-semibold">{confirmTarget.borrowerName}</span>?
             </p>
             <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm dark:border-[#1F2937] dark:bg-[#0F172A]/50">
-              <p><span className="font-medium">Loan:</span> #{confirmTarget.loanNumber || confirmTarget.loan_id}</p>
+              <p>
+                <span className="font-medium">Loan:</span> #
+                {paymentLoanId(confirmTarget) || confirmTarget.loan_id}
+                {confirmTarget.loanNumber ? (
+                  <span className={`ml-1 ${admin.textMuted}`}>({confirmTarget.loanNumber})</span>
+                ) : null}
+              </p>
               <p><span className="font-medium">Installment:</span> {confirmTarget.installment_no}</p>
               <p><span className="font-medium">Due date:</span> {formatDueDate(confirmTarget.due_date)}</p>
               <p><span className="font-medium">Due amount:</span> ₱{Number(confirmTarget.amount_due || 0).toLocaleString()}</p>

@@ -32,6 +32,12 @@ class PaymentController extends Controller
         if ($request->filled('loan_id')) {
             $q->where('loan_id', $request->query('loan_id'));
         }
+        if ($request->filled('loan_search')) {
+            $loanId = $this->parseLoanSearchToId((string) $request->query('loan_search'));
+            if ($loanId !== null) {
+                $q->where('loan_id', $loanId);
+            }
+        }
         if ($request->filled('status')) {
             $q->where('status', $request->query('status'));
         }
@@ -173,12 +179,38 @@ class PaymentController extends Controller
             $invoiceNumber = 'INV-'.str_pad((string) $payment->id, 6, '0', STR_PAD_LEFT);
             $subject = "Payment confirmed — {$invoiceNumber} — Amalgated Lending";
 
-            // Prefer Brevo when configured; otherwise use Laravel mail transport.
+            // 1) Brevo REST API when API key is set.
+            // 2) Brevo SMTP relay (often works when API HTTPS fails on Windows without CA bundle).
+            // 3) Default Laravel mailer (MAIL_MAILER / MAIL_HOST).
             if ($this->brevo->isConfigured()) {
-                $this->brevo->sendHtml($email, $borrowerName, $subject, $mailable->render());
-            } else {
-                Mail::to($email)->send($mailable);
+                try {
+                    $this->brevo->sendHtml($email, $borrowerName, $subject, $mailable->render());
+
+                    return ['sent' => true, 'note' => null];
+                } catch (\Throwable $brevoError) {
+                    Log::warning('Brevo API receipt send failed.', [
+                        'payment_id' => $payment->id,
+                        'borrower_email' => $email,
+                        'error' => $brevoError->getMessage(),
+                    ]);
+                }
             }
+
+            if ($this->brevoSmtpMailerConfigured()) {
+                try {
+                    Mail::mailer('brevo')->to($email)->send($mailable);
+
+                    return ['sent' => true, 'note' => null];
+                } catch (\Throwable $smtpError) {
+                    Log::warning('Brevo SMTP mailer receipt send failed.', [
+                        'payment_id' => $payment->id,
+                        'borrower_email' => $email,
+                        'error' => $smtpError->getMessage(),
+                    ]);
+                }
+            }
+
+            Mail::to($email)->send($mailable);
 
             return ['sent' => true, 'note' => null];
         } catch (\Throwable $e) {
@@ -186,9 +218,33 @@ class PaymentController extends Controller
                 'payment_id' => $payment->id,
                 'borrower_email' => $email,
             ]);
+            try {
+                // Last-resort fallback: write the receipt email payload to logs so local/dev flows
+                // can proceed even when neither Brevo nor SMTP transport is available.
+                Mail::mailer('log')->to($email)->send($mailable ?? new PaymentReceiptMail($payment->fresh(['loan.borrower'])));
+                Log::info('Payment receipt written to log mailer fallback.', [
+                    'payment_id' => $payment->id,
+                    'borrower_email' => $email,
+                ]);
 
-            return ['sent' => false, 'note' => 'mail_transport_failed'];
+                return ['sent' => false, 'note' => 'mail_logged_only'];
+            } catch (\Throwable $logFallbackError) {
+                Log::warning('Payment receipt log-mail fallback failed: '.$logFallbackError->getMessage(), [
+                    'payment_id' => $payment->id,
+                    'borrower_email' => $email,
+                ]);
+
+                return ['sent' => false, 'note' => 'mail_transport_failed'];
+            }
         }
+    }
+
+    private function brevoSmtpMailerConfigured(): bool
+    {
+        $user = config('mail.mailers.brevo.username');
+        $pass = config('mail.mailers.brevo.password');
+
+        return is_string($user) && $user !== '' && is_string($pass) && $pass !== '';
     }
 
     private function resolveBorrowerReceiptEmail(Payment $payment): ?string
@@ -222,6 +278,25 @@ class PaymentController extends Controller
         return $cur === Payment::STATUS_PAID && $prev !== Payment::STATUS_PAID;
     }
 
+    /**
+     * Resolve admin “loan number” filter: numeric id, #id, or LN-000123.
+     */
+    private function parseLoanSearchToId(string $raw): ?int
+    {
+        $t = strtolower(trim($raw));
+        if ($t === '') {
+            return null;
+        }
+        if (preg_match('/^ln-0*(\d+)$/', $t, $m)) {
+            return (int) $m[1];
+        }
+        if (preg_match('/^#?(\d+)$/', $t, $m)) {
+            return (int) $m[1];
+        }
+
+        return null;
+    }
+
     private function refreshLoanBalance(int $loanId): void
     {
         $loan = Loan::find($loanId);
@@ -239,5 +314,28 @@ class PaymentController extends Controller
             $loan->completed_at = now();
         }
         $loan->save();
+
+        if ($loan->status === Loan::STATUS_COMPLETED && $loan->borrower_id) {
+            $this->archiveBorrowerWhenNoActiveLoans((int) $loan->borrower_id);
+        }
+    }
+
+    private function archiveBorrowerWhenNoActiveLoans(int $borrowerId): void
+    {
+        $borrower = User::find($borrowerId);
+        if (! $borrower || ! $borrower->is_active) {
+            return;
+        }
+
+        $hasActiveLoans = Loan::where('borrower_id', $borrowerId)
+            ->whereIn('status', [Loan::STATUS_PENDING, Loan::STATUS_APPROVED, Loan::STATUS_ONGOING])
+            ->exists();
+
+        if ($hasActiveLoans) {
+            return;
+        }
+
+        $borrower->is_active = false;
+        $borrower->save();
     }
 }

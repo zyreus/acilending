@@ -10,6 +10,7 @@ import { validateTravelWizardClient } from '../components/travel/travelWizardVal
 import { postTravelLoanWizardApplication } from '../utils/lendingApi.js'
 import { openModal } from '../utils/systemModal.js'
 import { focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { getLoanProducts } from '../utils/loanProductsPublicApi.js'
 
 const MAX_LOAN = 2_000_000
 
@@ -45,6 +46,7 @@ export default function TravelAssistanceLoanPage() {
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
+  const [rateLabel, setRateLabel] = useState('3.50% per month')
 
   const flatErrorCount = useMemo(() => Object.keys(fieldErrors).length, [fieldErrors])
 
@@ -66,6 +68,25 @@ export default function TravelAssistanceLoanPage() {
       openModal({ message: errorMsg, tone: 'error' })
     }
   }, [errorMsg])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await getLoanProducts()
+        const p = (rows || []).find((x) => String(x.slug || '').toLowerCase() === 'travel-assistance-loan')
+        if (!p || cancelled) return
+        const rate = Number(p.interest_rate)
+        const label = Number.isFinite(rate) ? `${rate.toFixed(2)}% ${p.rate_type === 'fixed' ? 'fixed' : 'per month'}` : null
+        if (label) setRateLabel(label)
+      } catch {
+        // keep fallback label
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const saveDraft = () => {
     try {
@@ -183,7 +204,7 @@ export default function TravelAssistanceLoanPage() {
                 </div>
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight text-brand-text dark:text-white">Travel Assistance Loan</h1>
-                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>3.50% per month</p>
+                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>{rateLabel}</p>
                   <p className="mt-1 text-xs text-brand-text/70 dark:text-white/55">
                     Max loan ₱{MAX_LOAN.toLocaleString()} · term: monthly renewal (1 month)
                   </p>

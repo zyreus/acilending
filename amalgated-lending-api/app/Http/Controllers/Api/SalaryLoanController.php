@@ -8,6 +8,7 @@ use App\Models\AdminNotification;
 use App\Models\Loan;
 use App\Models\LoanApplication;
 use App\Models\LoanDocument;
+use App\Models\LoanProduct;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BrevoMailService;
@@ -20,9 +21,6 @@ use Illuminate\Support\Str;
 
 class SalaryLoanController extends Controller
 {
-    /** 1.5% per month → annual_interest_rate 18 (monthlyRate = 18/12/100 = 0.015) */
-    private const SALARY_ANNUAL_RATE_FOR_MONTHLY_1_5 = 18.0;
-
     /** Max principal = monthly gross salary × this multiplier (debt-service cap). */
     private const SALARY_TO_PRINCIPAL_MULTIPLIER = 6.0;
 
@@ -46,7 +44,7 @@ class SalaryLoanController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|min:1|max:360',
             'application_payload' => 'nullable|string',
@@ -84,9 +82,11 @@ class SalaryLoanController extends Controller
         }
 
         $payload = $this->decodeApplicationPayload($data['application_payload'] ?? null);
+        $monthlyRatePercent = $this->resolveMonthlyRatePercent('salary-loan', 1.5);
+        $annualRatePercent = $monthlyRatePercent * 12;
         $payload['loan_product_slug'] = 'salary-loan';
         $payload['loan_product_type'] = LoanApplication::TYPE_SALARY;
-        $payload['selected_interest_rate'] = 1.5;
+        $payload['selected_interest_rate'] = round($monthlyRatePercent, 4);
         $payload['selected_rate_type'] = 'monthly';
         $payload['employer_name'] = trim($data['employer_name']);
         $payload['monthly_salary'] = $monthlySalary;
@@ -104,7 +104,7 @@ class SalaryLoanController extends Controller
         }
 
         try {
-            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $coMakerEmail, $monthlySalary) {
+            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $coMakerEmail, $monthlySalary, $annualRatePercent) {
                 $borrower = User::firstOrCreate(
                     ['email' => $applicantEmail],
                     [
@@ -168,7 +168,7 @@ class SalaryLoanController extends Controller
                     'borrower_id' => $borrower->id,
                     'principal' => $data['principal'],
                     'term_months' => $data['term_months'],
-                    'annual_interest_rate' => self::SALARY_ANNUAL_RATE_FOR_MONTHLY_1_5,
+                    'annual_interest_rate' => $annualRatePercent,
                     'status' => Loan::STATUS_PENDING,
                     'application_payload' => $payload,
                 ]);
@@ -183,6 +183,7 @@ class SalaryLoanController extends Controller
                     'co_maker_phone' => $data['co_maker_phone'] ?? null,
                     'employer_name' => trim($data['employer_name']),
                     'monthly_salary' => $monthlySalary,
+                    'form_data' => $payload,
                     'status' => LoanApplication::STATUS_PENDING,
                 ]);
 
@@ -298,6 +299,23 @@ class SalaryLoanController extends Controller
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function resolveMonthlyRatePercent(string $slug, float $fallback): float
+    {
+        $product = LoanProduct::query()->where('slug', $slug)->first();
+        if (! $product) {
+            return $fallback;
+        }
+        $rate = (float) $product->interest_rate;
+        if ($rate <= 0) {
+            return $fallback;
+        }
+        if ((string) $product->rate_type === 'annual') {
+            return $rate / 12;
+        }
+
+        return $rate;
+    }
+
     private function notifyBorrower(User $borrower, Loan $loan): void
     {
         $email = trim((string) $borrower->email);
@@ -308,14 +326,18 @@ class SalaryLoanController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your Salary Loan application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

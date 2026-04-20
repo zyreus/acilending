@@ -19,7 +19,9 @@ import {
 } from '../components/loan/amalgatedPayloadMerge.js'
 import { postChattelMortgageApplication } from '../utils/lendingApi.js'
 import { openModal } from '../utils/systemModal.js'
-import { collectMissingFields, focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { buildMissingFieldsSummary, collectMissingFields, focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { isFullApplicationPrintable } from '../components/loan/amalgatedApplicationCompleteness.js'
+import { getLoanProducts } from '../utils/loanProductsPublicApi.js'
 
 const TERM_OPTIONS = [12, 24, 36]
 
@@ -48,12 +50,33 @@ export default function ChattelMortgagePage() {
   })
   const [signatureData, setSignatureData] = useState('')
   const [coMakerSignatureData, setCoMakerSignatureData] = useState('')
+  const canPrintApplication = isFullApplicationPrintable(extendedApplication, coMakerStatement, true)
+  const [rateLabel, setRateLabel] = useState('3.88% per month (standard)')
 
   useEffect(() => {
     if (errorMsg) {
       openModal({ message: errorMsg, tone: 'error' })
     }
   }, [errorMsg])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await getLoanProducts()
+        const p = (rows || []).find((x) => String(x.slug || '').toLowerCase() === 'chattel-mortgage')
+        if (!p || cancelled) return
+        const rate = Number(p.interest_rate)
+        const label = Number.isFinite(rate) ? `${rate.toFixed(2)}% ${p.rate_type === 'fixed' ? 'fixed' : 'per month'}` : null
+        if (label) setRateLabel(label)
+      } catch {
+        // keep fallback label
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -89,7 +112,7 @@ export default function ChattelMortgagePage() {
     if (Object.keys(missingFields).length) {
       setFieldErrors(missingFields)
       setStatus('error')
-      setErrorMsg('Please fill in all required fields.')
+      setErrorMsg(buildMissingFieldsSummary(missingFields))
       focusFirstInvalidField(missingFields)
       return
     }
@@ -201,7 +224,7 @@ export default function ChattelMortgagePage() {
                 </div>
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight text-brand-text dark:text-white">Chattel Mortgage Loan</h1>
-                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>3.88% per month (standard)</p>
+                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>{rateLabel}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -330,7 +353,7 @@ export default function ChattelMortgagePage() {
                     extendedApplication={extendedApplication}
                     coMakerStatement={coMakerStatement}
                     includeCoMaker
-                    canPrint={status === 'success'}
+                    canPrint={canPrintApplication}
                     applicantSignatureData={signatureData}
                   />
                 </fieldset>

@@ -8,6 +8,7 @@ use App\Models\AdminNotification;
 use App\Models\Loan;
 use App\Models\LoanApplication;
 use App\Models\LoanDocument;
+use App\Models\LoanProduct;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BrevoMailService;
@@ -21,9 +22,6 @@ use Illuminate\Validation\Rule;
 
 class SssPensionLoanController extends Controller
 {
-    /** 2.24% per month → annual_interest_rate 26.88 */
-    private const PENSION_ANNUAL_RATE_FOR_MONTHLY_2_24 = 26.88;
-
     private const BANK_STATEMENT_MONTHS_REQUIRED = 4;
 
     private const MAX_AGE = 70;
@@ -41,7 +39,7 @@ class SssPensionLoanController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|min:1|max:'.self::MAX_TERM_MONTHS,
             'application_payload' => 'nullable|string',
@@ -76,9 +74,11 @@ class SssPensionLoanController extends Controller
         [$coMakerId, $coMakerNameStored, $coMakerEmailStored, $coMakerPhoneStored] = $coMakerResolution;
 
         $payload = $this->decodeApplicationPayload($data['application_payload'] ?? null);
+        $monthlyRatePercent = $this->resolveMonthlyRatePercent('sss-pension-loan', 2.24);
+        $annualRatePercent = $monthlyRatePercent * 12;
         $payload['loan_product_slug'] = 'sss-pension-loan';
         $payload['loan_product_type'] = LoanApplication::TYPE_SSS_PENSION;
-        $payload['selected_interest_rate'] = 2.24;
+        $payload['selected_interest_rate'] = round($monthlyRatePercent, 4);
         $payload['selected_rate_type'] = 'monthly';
         $payload['pension_type'] = $data['pension_type'];
         $payload['monthly_pension'] = (float) $data['monthly_pension'];
@@ -97,7 +97,8 @@ class SssPensionLoanController extends Controller
                 $coMakerNameStored,
                 $coMakerEmailStored,
                 $coMakerPhoneStored,
-                $age
+                $age,
+                $annualRatePercent
             ) {
                 $borrower = User::firstOrCreate(
                     ['email' => $applicantEmail],
@@ -134,7 +135,7 @@ class SssPensionLoanController extends Controller
                     'borrower_id' => $borrower->id,
                     'principal' => $data['principal'],
                     'term_months' => $data['term_months'],
-                    'annual_interest_rate' => self::PENSION_ANNUAL_RATE_FOR_MONTHLY_2_24,
+                    'annual_interest_rate' => $annualRatePercent,
                     'status' => Loan::STATUS_PENDING,
                     'application_payload' => $payload,
                 ]);
@@ -152,6 +153,7 @@ class SssPensionLoanController extends Controller
                     'pension_type' => $data['pension_type'],
                     'monthly_pension' => $data['monthly_pension'],
                     'age' => $age,
+                    'form_data' => $payload,
                     'status' => LoanApplication::STATUS_PENDING,
                 ]);
 
@@ -337,6 +339,23 @@ class SssPensionLoanController extends Controller
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function resolveMonthlyRatePercent(string $slug, float $fallback): float
+    {
+        $product = LoanProduct::query()->where('slug', $slug)->first();
+        if (! $product) {
+            return $fallback;
+        }
+        $rate = (float) $product->interest_rate;
+        if ($rate <= 0) {
+            return $fallback;
+        }
+        if ((string) $product->rate_type === 'annual') {
+            return $rate / 12;
+        }
+
+        return $rate;
+    }
+
     private function notifyBorrower(User $borrower, Loan $loan): void
     {
         $email = trim((string) $borrower->email);
@@ -347,14 +366,18 @@ class SssPensionLoanController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your SSS Pension Loan application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

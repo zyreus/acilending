@@ -14,3 +14,11 @@ CREATE DATABASE IF NOT EXISTS `amalgated_lending_db`
 CREATE DATABASE IF NOT EXISTS `amalgated_lending_chat`
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
+
+-- Optional: if you insist on user `acilending_db` locally (must match amalgated-lending-api/.env).
+-- Paste in phpMyAdmin → SQL if you get "Access denied for user 'acilending_db'@'localhost'".
+-- CREATE DATABASE IF NOT EXISTS `acilending_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- CREATE USER IF NOT EXISTS 'acilending_db'@'localhost' IDENTIFIED BY 'your_password_here';
+-- GRANT ALL PRIVILEGES ON `acilending_db`.* TO 'acilending_db'@'localhost';
+-- FLUSH PRIVILEGES;
+-- Note: MySQL 5.7 may not support CREATE USER IF NOT EXISTS — use CREATE USER or ALTER USER instead.

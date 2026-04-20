@@ -100,7 +100,7 @@ export default function ApplyFaceLivenessCapture({ onCapture, disabled }) {
       setCameraError(
         e?.name === 'NotAllowedError'
           ? 'Camera permission denied. Allow camera access to continue.'
-          : 'Could not open camera. Use HTTPS or localhost.',
+          : 'Could not open camera. Use a secure HTTPS page.',
       )
       return
     }

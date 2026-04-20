@@ -13,15 +13,99 @@ use App\Models\LoanApplication;
 use App\Models\Payment;
 use App\Models\TravelApplication;
 use App\Support\LoanApplicationDocumentStatus;
+use App\Support\SignedPrintUrls;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 
 class BorrowerPortalController extends Controller
 {
+    /**
+     * @param  array<string, mixed>  $docStatus
+     * @return array<int, array{key:string,label:string,url:string,name:string}>
+     */
+    private function flattenDocumentLinks(array $docStatus): array
+    {
+        $links = [];
+        foreach ($docStatus as $key => $row) {
+            $label = (string) ($row['label'] ?? $key);
+            $paths = is_array($row['paths'] ?? null) ? $row['paths'] : [];
+            foreach ($paths as $path) {
+                if (! is_string($path) || $path === '') {
+                    continue;
+                }
+                $links[] = [
+                    'key' => (string) $key,
+                    'label' => $label,
+                    'url' => Storage::disk('public')->url($path),
+                    'name' => basename($path),
+                ];
+            }
+        }
+
+        return $links;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $formData
+     * @return array<int, array{label:string,value:string}>
+     */
+    private function buildFormPreview(?array $formData): array
+    {
+        if (! is_array($formData) || $formData === []) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($formData as $key => $value) {
+            if (is_array($value) || is_object($value) || $value === null || $value === '') {
+                continue;
+            }
+            $text = trim((string) $value);
+            if ($text === '') {
+                continue;
+            }
+            $out[] = [
+                'label' => Str::title(str_replace('_', ' ', (string) $key)),
+                'value' => Str::limit($text, 120),
+            ];
+            if (count($out) >= 8) {
+                break;
+            }
+        }
+
+        return $out;
+    }
+
+    private function normalizeEmail(?string $email): string
+    {
+        return strtolower(trim((string) $email));
+    }
+
+    /**
+     * Keep only applications that truly belong to the logged-in borrower account.
+     * Primary ownership is user_id; when applicant email exists in form_data, it must match too.
+     */
+    private function isGeneralApplicationOwnedByUser(LoanApplication $application, $user): bool
+    {
+        if ((int) $application->user_id !== (int) $user->id) {
+            return false;
+        }
+
+        $formData = is_array($application->form_data) ? $application->form_data : [];
+        $appEmail = $this->normalizeEmail(
+            data_get($formData, 'email') ?: data_get($formData, 'personal.email')
+        );
+        if ($appEmail === '') {
+            return true;
+        }
+
+        return $appEmail === $this->normalizeEmail($user->email);
+    }
+
     /**
      * Which loan drives the payment schedule on the dashboard.
      * Prefer in-progress lending over newer pending applications (otherwise `orderByDesc(id)->first`
@@ -95,6 +179,8 @@ class BorrowerPortalController extends Controller
         }
 
         $loansSummary = $allLoans->map(function (Loan $l) {
+            $hasSchedule = is_array($l->schedule_json) && count($l->schedule_json) > 0;
+
             return [
                 'id' => $l->id,
                 'status' => $l->status,
@@ -105,6 +191,13 @@ class BorrowerPortalController extends Controller
                 'outstanding_balance' => $l->outstanding_balance,
                 'created_at' => optional($l->created_at)?->toIso8601String(),
                 'rejection_reason' => $l->rejection_reason,
+                'print_statement_url' => $hasSchedule
+                    ? SignedPrintUrls::temporaryRoute(
+                        'print.loan-soa',
+                        now()->addMinutes(45),
+                        ['loan' => $l->id]
+                    )
+                    : null,
             ];
         })->values();
 
@@ -447,6 +540,7 @@ class BorrowerPortalController extends Controller
             ->whereIn('loan_type', array_keys(config('amalgated_loans.general_loan_types')))
             ->orderByDesc('id')
             ->get()
+            ->filter(fn (LoanApplication $a) => $this->isGeneralApplicationOwnedByUser($a, $user))
             ->map(function (LoanApplication $a) {
                 $docStatus = LoanApplicationDocumentStatus::forGeneralLoanType($a->loan_type, $a->documents);
 
@@ -464,12 +558,14 @@ class BorrowerPortalController extends Controller
                         'label' => $row['label'],
                         'uploaded' => $row['ok'],
                     ])->values(),
+                    'uploaded_documents' => $this->flattenDocumentLinks($docStatus),
+                    'form_preview' => $this->buildFormPreview($a->form_data),
                     'signatures' => [
                         'applicant' => $a->applicant_signature ? Storage::disk('public')->url($a->applicant_signature) : null,
                         'spouse' => $a->spouse_signature ? Storage::disk('public')->url($a->spouse_signature) : null,
                         'comaker' => $a->comaker_signature ? Storage::disk('public')->url($a->comaker_signature) : null,
                     ],
-                    'print_url' => URL::temporarySignedRoute(
+                    'print_url' => SignedPrintUrls::temporaryRoute(
                         'print.general-loan',
                         now()->addMinutes(45),
                         ['loanApplication' => $a->id]
@@ -494,12 +590,14 @@ class BorrowerPortalController extends Controller
                         'label' => $row['label'],
                         'uploaded' => $row['ok'],
                     ])->values(),
+                    'uploaded_documents' => $this->flattenDocumentLinks($docStatus),
+                    'form_preview' => $this->buildFormPreview($a->travel_specific_fields),
                     'signatures' => [
                         'applicant' => $a->applicant_signature ? Storage::disk('public')->url($a->applicant_signature) : null,
                         'spouse' => $a->spouse_signature ? Storage::disk('public')->url($a->spouse_signature) : null,
                     ],
                     'terms_accepted' => $a->terms_accepted,
-                    'print_url' => URL::temporarySignedRoute(
+                    'print_url' => SignedPrintUrls::temporaryRoute(
                         'print.travel-loan',
                         now()->addMinutes(45),
                         ['travelApplication' => $a->id]

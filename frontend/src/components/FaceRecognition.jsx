@@ -67,7 +67,7 @@ export default function FaceRecognition({ borrowerId, onVerified, onFailed }) {
           setCameraError(
             e?.name === 'NotAllowedError'
               ? 'Camera permission denied.'
-              : 'Could not open camera. Use HTTPS or localhost.',
+              : 'Could not open camera. Use a secure HTTPS page.',
           )
         }
       }

@@ -5,6 +5,7 @@ import { borrowerApi } from './api/client.js'
 
 const nav = [
   { to: '/borrower/dashboard', label: 'Dashboard' },
+  { to: '/borrower/applications', label: 'Applications' },
   { to: '/borrower/notifications', label: 'Notifications' },
   { to: '/borrower/apply-loan', label: 'Apply (wizard)' },
   { to: '/borrower/payments', label: 'Payments' },

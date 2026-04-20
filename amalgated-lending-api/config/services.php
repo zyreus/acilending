@@ -42,6 +42,8 @@ return [
         'sender_email' => env('BREVO_SENDER_EMAIL'),
         'sender_name' => env('BREVO_SENDER_NAME'),
         'timeout' => (int) env('BREVO_TIMEOUT', 30),
+        // Verify HTTPS to api.brevo.com (Windows dev: set false if cURL error 60 until php.ini curl.cainfo is set).
+        'verify_ssl' => filter_var(env('BREVO_HTTP_VERIFY_SSL', true), FILTER_VALIDATE_BOOL),
     ],
 
     /*

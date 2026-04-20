@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import authRoutes from './api/routes/authRoutes.js';
 import postsRoutes from './api/routes/postsRoutes.js';
+import { LENDING_AI_APPEND, LENDING_CUSTOMER_FAQ, getLendingFallbackReply } from './ai/lendingTraining.js';
 import {
   createConversation,
   getConversation,
@@ -137,13 +138,30 @@ import {
 import { sendNotificationEmails, isEmailConfigured, sendTestEmail, sendCustomEmail, sendApplicationConfirmationEmail } from './lib/email.js';
 
 const app = express();
+if (process.env.TRUST_PROXY === '1' || process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 1);
+}
+
+/** Comma-separated browser origins; empty = allow all (local dev). Set in production. */
+const chatCorsOrigins = (process.env.CHAT_CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+const chatCorsConfig =
+  chatCorsOrigins.length > 0
+    ? { origin: chatCorsOrigins, credentials: true }
+    : { origin: true };
+if (process.env.NODE_ENV === 'production' && chatCorsOrigins.length === 0) {
+  console.warn('[chat] NODE_ENV=production but CHAT_CORS_ORIGINS is empty — all origins allowed. Set CHAT_CORS_ORIGINS for stricter CORS.');
+}
+
 let port = Number(process.env.PORT) || 8010;
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: true },
+  cors: { ...chatCorsConfig, methods: ['GET', 'POST'] },
 });
 
-app.use(cors({ origin: true }));
+app.use(cors(chatCorsConfig));
 app.use(express.json());
 
 // Serve CMS uploads at /uploads/cms
@@ -492,7 +510,8 @@ Amalgated Holdings is a diversified group of companies. Be professional, friendl
 Help visitors with general enquiries, company information, and how to get in touch.
 Base your answers on the "Website and company details" below. Use that information for contact info, addresses, and company facts.
 If the user asks something not covered by the provided details, say so politely and suggest they contact the team or leave their details for a follow-up.
-If you don't know something specific, suggest they contact the team directly or leave their details so someone can follow up.`;
+If you don't know something specific, suggest they contact the team directly or leave their details so someone can follow up.
+When your instructions include a "Lending assistant" section, you are assisting the Amalgated Lending website: follow that section and "Typical customer topics" for common borrower questions—never invent rates, approvals, or legal guarantees.`;
 
 // Static company/office info (aligned with the website Contact page) for AI context
 const WEBSITE_KNOWLEDGE = `
@@ -520,11 +539,68 @@ async function getWebsiteContext() {
   return parts.join('\n');
 }
 
-const groqApiKey = (process.env.GROQ_API_KEY || '').trim();
+function sanitizeGroqApiKey(raw) {
+  let s = String(raw || '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+const groqApiKey = sanitizeGroqApiKey(process.env.GROQ_API_KEY);
 const groq = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
-/** @see https://console.groq.com/docs/models — override if a model is deprecated. */
-const GROQ_MODEL = (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile').trim();
+/** Ordered candidates — next is tried if Groq returns model invalid / decommissioned (400). @see https://console.groq.com/docs/models */
+const GROQ_MODEL_CANDIDATES = [
+  ...new Set(
+    [(process.env.GROQ_MODEL || '').trim(), 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'].filter(Boolean),
+  ),
+];
 const aiContexts = new Map();
+
+function extractGroqAssistantText(completion) {
+  const msg = completion?.choices?.[0]?.message;
+  if (!msg) return '';
+  const c = msg.content;
+  if (typeof c === 'string') return c.trim();
+  if (Array.isArray(c)) {
+    return c
+      .map((part) => (typeof part === 'object' && part?.text ? part.text : ''))
+      .join('')
+      .trim();
+  }
+  return '';
+}
+
+function isGroqModelReplaceableError(err) {
+  const status = err?.status ?? err?.response?.status;
+  const msg = String(err?.message || err?.error?.message || err || '');
+  if (status === 400 || status === 404) return true;
+  return /model.*not found|invalid model|decommission|does not exist|has been deprecated|no longer available/i.test(msg);
+}
+
+async function groqChatCreate(messages) {
+  let lastErr = null;
+  for (const model of GROQ_MODEL_CANDIDATES) {
+    try {
+      const maxTok = Number(process.env.GROQ_MAX_TOKENS);
+      const temp = Number(process.env.GROQ_TEMPERATURE);
+      return await groq.chat.completions.create({
+        model,
+        messages,
+        max_tokens: Number.isFinite(maxTok) && maxTok > 0 ? Math.min(2048, maxTok) : 512,
+        temperature: Number.isFinite(temp) && temp >= 0 && temp <= 2 ? temp : 0.65,
+      });
+    } catch (err) {
+      lastErr = err;
+      if (isGroqModelReplaceableError(err)) {
+        console.warn('[ai] Groq model failed, trying next:', model, err?.message || err);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr || new Error('Groq: no working model');
+}
 
 function normalizeLang(input) {
   const raw = String(input || '').toLowerCase().trim();
@@ -580,7 +656,9 @@ function t(lang, key) {
   return (dict[l] && dict[l][key]) || dict.en[key] || '';
 }
 
-const LEAD_CAPTURE_KEYWORDS = /\b(service|services|pricing|price|cost|rates?|availability|available|inquire|inquiry|quote|book|schedule|contact|reach|speak|representative|agent|team)\b/i;
+/** Only strong "get a human to follow up" phrases — broad words like "contact" or "rates" were skipping the AI entirely. */
+const LEAD_CAPTURE_KEYWORDS =
+  /\b(call me back|request a callback|callback please|phone me|contact me by phone|have someone call|speak to (?:a )?(?:human|person|agent)|talk to (?:a )?(?:human|person|representative)|i need (?:a )?(?:human|person|agent)|representative please|loan officer call)\b/i;
 function wantsLeadCapture(message) {
   return typeof message === 'string' && LEAD_CAPTURE_KEYWORDS.test(message);
 }
@@ -615,68 +693,6 @@ function resolveLocationFromIp(visitId, ip, cb) {
     .finally(cb);
 }
 
-const LENDING_AI_APPEND = `
-Additional context — this conversation is from the Amalgated Lending website (Amalgated Lending Inc. / ALI).
-You help with: personal loans, business loans, salary loans, retail financing, application steps, branch information, and responsible lending.
-Guide users to apply via the site apply form and to read loan products. The lending business is part of the Amalgated Holdings group.
-Keep answers accurate; if unsure about rates or eligibility, suggest they apply or contact a branch.`;
-
-const LENDING_PHONE = '(082) 297 8099';
-const LENDING_OFFICE =
-  'Doña Carolina Bldg, J.P. Laurel Ave, Bo. Obrero, Davao City, Philippines';
-
-/** Rule-based replies when GROQ_API_KEY is missing or Groq API errors (chat still works). */
-function getLendingFallbackReply(userMessage, lang) {
-  const m = String(userMessage || '').toLowerCase();
-  const l = normalizeLang(lang);
-
-  if (l === 'fil') {
-    if (/apply|aplikasyon|loan|utang|salary|negosyo|personal|business|hiram/i.test(m)) {
-      return `Maaari kang mag-apply online sa Amalgated Lending website (Apply page). Kailangan ng valid ID, proof of income, at supporting documents. Susuriin ng team at makikipag-ugnay sa iyo — karaniwan sa loob ng 1–2 araw ng trabaho. Tulong: tumawag sa ${LENDING_PHONE}.`
-    }
-    if (/rate|interest|bunga|presyo|magkano|fee/i.test(m)) {
-      return `Depende ang rates at terms sa loan product, halaga, at profile mo. Para sa tumpak na quote, mag-apply online o tumawag sa ${LENDING_PHONE}.`
-    }
-    if (/branch|opisina|saan|location|davao|address|bisita/i.test(m)) {
-      return `Opisina: ${LENDING_OFFICE}. Telepono: ${LENDING_PHONE}.`
-    }
-    if (/hello|hi |^hi$|kumusta|tulong|help|magandang/i.test(m)) {
-      return `Kumusta! Tutulungan ka namin sa Amalgated Lending — personal, salary, business loans, at iba pa. Ano ang gusto mong malaman? Puwede mo ring gamitin ang mga quick option sa chat.`
-    }
-    if (/salamat|thank/i.test(m)) {
-      return `Walang anuman! Kung may iba ka pang tanong tungkol sa loan o application, sabihin lang.`
-    }
-    return `Salamat sa mensahe mo. Para sa loan details, rates, o application, tumawag sa ${LENDING_PHONE} o gamitin ang Apply page sa website.`
-  }
-
-  if (l === 'es') {
-    if (/apply|aplicación|loan|préstamo|salary|business|personal/i.test(m)) {
-      return `Puede aplicar en línea en el sitio de Amalgated Lending (página Apply). Suele necesitarse ID válido, comprobante de ingresos y documentos. Teléfono: ${LENDING_PHONE}.`
-    }
-    return `Gracias por tu mensaje. Para préstamos Amalgated Lending, llama al ${LENDING_PHONE} o usa la página Apply en el sitio.`
-  }
-
-  if (/apply|application|how do i apply|apply for|loan application/i.test(m)) {
-    return `You can apply online through the Amalgated Lending website’s Apply page. You’ll typically need a valid ID, proof of income, and supporting documents. Our team reviews applications and usually contacts you within 1–2 business days. Need help? Call ${LENDING_PHONE}.`
-  }
-  if (/rate|interest|how much|apr|monthly payment|fee/i.test(m)) {
-    return `Interest rates and terms depend on the loan product, amount, term, and your profile. For accurate figures, apply online or call ${LENDING_PHONE} — our staff can provide a personalized quote.`
-  }
-  if (/branch|office|location|davao|where|address|visit|open/i.test(m)) {
-    return `Main office: ${LENDING_OFFICE}. Phone: ${LENDING_PHONE}. You can also explore Loan Products and Apply on our site.`
-  }
-  if (/hours|when are you|schedule/i.test(m)) {
-    return `For branch hours and appointments, please call ${LENDING_PHONE}.`
-  }
-  if (/hello|hi |^hi$|hey|good morning|good afternoon|help\b/i.test(m)) {
-    return `Hello! I can help with Amalgated Lending — personal, salary, business loans, and more. What would you like to know? You can also use the quick options in this chat.`
-  }
-  if (/thank|thanks|salamat/i.test(m)) {
-    return `You’re welcome! If you need anything else about loans or your application, just ask.`
-  }
-  return `Thanks for your message. For loan details, rates, or applications, reach us at ${LENDING_PHONE} or use the Apply page on the Amalgated Lending website. Our menu above has shortcuts for common questions.`
-}
-
 function getHoldingsFallbackReply(userMessage, lang) {
   const m = String(userMessage || '').toLowerCase();
   const l = normalizeLang(lang);
@@ -694,10 +710,11 @@ async function getAIReply(conversationId, userMessage, lang) {
   const l = normalizeLang(lang);
   const fromLending =
     typeof conversationId === 'string' && conversationId.startsWith('lending-');
+  const userText = String(userMessage || '').trim().slice(0, 8000);
 
   const fallback = () =>
     Promise.resolve(
-      fromLending ? getLendingFallbackReply(userMessage, l) : getHoldingsFallbackReply(userMessage, l),
+      fromLending ? getLendingFallbackReply(userText, l) : getHoldingsFallbackReply(userText, l),
     );
 
   if (!groqApiKey || !groq) {
@@ -708,24 +725,21 @@ async function getAIReply(conversationId, userMessage, lang) {
   try {
     if (!aiContexts.has(key)) {
       const websiteContext = await getWebsiteContext();
-      const lendingBlock = fromLending ? `\n${LENDING_AI_APPEND}\n` : '\n';
+      const lendingBlock = fromLending
+        ? `\n${LENDING_AI_APPEND}\n\n${LENDING_CUSTOMER_FAQ}\n`
+        : '\n';
       aiContexts.set(key, [{
         role: 'system',
         content: `${SYSTEM_PROMPT}${lendingBlock}\nWebsite and company details:\n${websiteContext}\n\nAlways reply in ${languageName(l)}. If the user switches language, follow the latest selected language.`,
       }]);
     }
     const ctx = aiContexts.get(key);
-    ctx.push({ role: 'user', content: userMessage });
+    ctx.push({ role: 'user', content: userText });
     if (ctx.length > 21) {
       aiContexts.set(key, [ctx[0], ...ctx.slice(-20)]);
     }
-    const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
-      messages: ctx,
-      max_tokens: 512,
-      temperature: 0.7,
-    });
-    const reply = (completion.choices[0]?.message?.content || '').trim();
+    const completion = await groqChatCreate(ctx);
+    const reply = extractGroqAssistantText(completion);
     if (!reply) {
       ctx.pop();
       return fallback();

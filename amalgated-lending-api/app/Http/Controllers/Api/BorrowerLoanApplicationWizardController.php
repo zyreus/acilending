@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\GeneralLoanApplicationStatusMail;
 use App\Models\LoanApplication;
+use App\Services\BrevoMailService;
 use App\Services\LoanApplicationWorkflowValidator;
 use App\Services\SignatureStorageService;
+use App\Support\SignedPrintUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 
 /**
@@ -20,6 +23,7 @@ class BorrowerLoanApplicationWizardController extends Controller
     public function __construct(
         private LoanApplicationWorkflowValidator $validator,
         private SignatureStorageService $signatures,
+        private BrevoMailService $brevo,
     ) {
     }
 
@@ -276,6 +280,7 @@ class BorrowerLoanApplicationWizardController extends Controller
         $loanApplication->submitted_at = now();
         $loanApplication->draft_step = 5;
         $loanApplication->save();
+        $this->notifyBorrowerApplicationStatus($loanApplication->fresh(['borrower']), LoanApplication::STATUS_PENDING);
 
         return response()->json([
             'ok' => true,
@@ -305,6 +310,42 @@ class BorrowerLoanApplicationWizardController extends Controller
         $user = $request->user();
         if (! $user || (int) $loanApplication->user_id !== (int) $user->id) {
             abort(403);
+        }
+    }
+
+    private function notifyBorrowerApplicationStatus(LoanApplication $loanApplication, string $status): void
+    {
+        $borrower = $loanApplication->borrower;
+        if (! $borrower) {
+            return;
+        }
+
+        $email = trim((string) $borrower->email);
+        if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        $mailable = new GeneralLoanApplicationStatusMail($loanApplication, (string) $borrower->name, $status);
+        $subject = match ($status) {
+            LoanApplication::STATUS_APPROVED => 'Loan application update: approved — Amalgated Lending Inc.',
+            LoanApplication::STATUS_REJECTED => 'Loan application update: rejected — Amalgated Lending Inc.',
+            default => 'Loan application submitted — Amalgated Lending Inc.',
+        };
+
+        if ($this->brevo->isConfigured()) {
+            try {
+                $this->brevo->sendHtml($email, (string) $borrower->name, $subject, $mailable->render());
+
+                return;
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        try {
+            Mail::to($email)->send($mailable);
+        } catch (\Throwable $e) {
+            report($e);
         }
     }
 
@@ -347,7 +388,7 @@ class BorrowerLoanApplicationWizardController extends Controller
             'spouse_signature_path' => $a->spouse_signature,
             'comaker_signature_path' => $a->comaker_signature,
             'is_draft' => $a->submitted_at === null,
-            'print_url' => URL::temporarySignedRoute(
+            'print_url' => SignedPrintUrls::temporaryRoute(
                 'print.general-loan',
                 now()->addMinutes(45),
                 ['loanApplication' => $a->id]

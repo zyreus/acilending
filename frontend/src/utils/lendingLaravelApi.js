@@ -1,5 +1,5 @@
 /**
- * Laravel JWT API base resolution (Holdings-style): dev proxy, explicit URL, localhost fallbacks.
+ * Laravel JWT API base resolution (Holdings-style): dev proxy + explicit URL.
  * Used by admin/api/client.js for /api/v1 routes.
  */
 
@@ -8,7 +8,7 @@ const STORAGE_KEY = 'lending_laravel_working_api_base'
 function isLoopbackHostname(host) {
   if (!host) return true
   const h = String(host).toLowerCase()
-  return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]'
+  return h === '0.0.0.0' || h === '[::1]'
 }
 
 function addBase(bases, b) {
@@ -49,7 +49,7 @@ export function laravelApiBases() {
     addBase(bases, normalizeLaravelApiBase(explicit))
   }
 
-  // Dev: same-origin `/api/v1` via Vite proxy — avoids stale localStorage like `http://127.0.0.1:8000` (missing /api/v1).
+  // Dev: same-origin `/api/v1` via Vite proxy.
   if (typeof window !== 'undefined' && import.meta.env.DEV) {
     addBase(bases, '')
   }
@@ -59,11 +59,7 @@ export function laravelApiBases() {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved != null) {
         const normalized = normalizeLaravelApiBase(saved)
-        const loopback = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(normalized)
-        // Ignore cached loopback bases in dev (port drift) and on a real deployed host (stale after local testing).
-        if (!loopback || isLoopbackHostname(winHost)) {
-          addBase(bases, normalized)
-        }
+        addBase(bases, normalized)
       }
     }
   } catch {
@@ -75,16 +71,8 @@ export function laravelApiBases() {
     addBase(bases, '')
   }
 
-  const backendPort = String(import.meta.env.VITE_BACKEND_PORT || '8000')
-  if (typeof window !== 'undefined' && isLoopbackHostname(winHost)) {
-    addBase(bases, normalizeLaravelApiBase(`http://127.0.0.1:${backendPort}`))
-  }
-
   if (bases.length === 0) {
-    addBase(
-      bases,
-      onPublicHost ? '' : normalizeLaravelApiBase(explicit || `http://127.0.0.1:${backendPort}`),
-    )
+    addBase(bases, '')
   }
   return bases
 }
@@ -116,8 +104,7 @@ export function getLaravelPublicOrigin() {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin
   }
-  const port = String(import.meta.env.VITE_BACKEND_PORT || '8000')
-  return `http://127.0.0.1:${port}`
+  return ''
 }
 
 /**

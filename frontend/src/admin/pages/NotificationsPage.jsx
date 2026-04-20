@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client.js'
 import { useToast } from '../context/ToastContext.jsx'
 import { admin } from '../components/AdminUi.jsx'
+import { getAdminNotificationHref } from '../utils/notificationRoutes.js'
 
 export default function NotificationsPage() {
   const { showToast } = useToast()
@@ -59,33 +61,63 @@ export default function NotificationsPage() {
       </div>
 
       <ul className="space-y-3">
-        {rows.map((n) => (
-          <li
-            key={n.id}
-            className={`rounded-2xl border px-5 py-4 transition-colors duration-300 ${
-              n.read_at
-                ? 'border-gray-200 bg-gray-50 text-gray-600 dark:border-white/5 dark:bg-black/30 dark:text-gray-400'
-                : 'border-red-300 bg-red-50 text-gray-900 dark:border-red-500/30 dark:bg-red-950/20 dark:text-gray-100'
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">{n.title}</p>
-                {n.body && <p className={`mt-1 text-sm ${admin.textMuted}`}>{n.body}</p>}
-                <p className={`mt-2 text-xs ${admin.textMuted}`}>{n.created_at}</p>
+        {rows.map((n) => {
+          const href = getAdminNotificationHref(n)
+          const cardTone = n.read_at
+            ? 'border-gray-200 bg-gray-50 text-gray-600 dark:border-white/5 dark:bg-black/30 dark:text-gray-400'
+            : 'border-red-300 bg-red-50 text-gray-900 dark:border-red-500/30 dark:bg-red-950/20 dark:text-gray-100'
+          const body = (
+            <>
+              <p className="font-semibold">{n.title}</p>
+              {n.body ? <p className={`mt-1 text-sm ${admin.textMuted}`}>{n.body}</p> : null}
+              <p className={`mt-2 text-xs ${admin.textMuted}`}>{n.created_at}</p>
+            </>
+          )
+          return (
+            <li key={n.id} className={`rounded-2xl border px-5 py-4 transition-colors duration-300 ${cardTone}`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                {href ? (
+                  <Link
+                    to={href}
+                    onClick={() => {
+                      if (!n.read_at) void markOne(n.id)
+                    }}
+                    className={`min-w-0 flex-1 rounded-lg outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-red-500 ${
+                      n.read_at ? '' : 'hover:underline'
+                    }`}
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!n.read_at) void markOne(n.id)
+                    }}
+                    className={`min-w-0 flex-1 rounded-lg text-left outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-red-500 ${
+                      n.read_at ? 'cursor-default' : 'cursor-pointer hover:underline'
+                    }`}
+                  >
+                    {body}
+                  </button>
+                )}
+                {!n.read_at ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      markOne(n.id)
+                    }}
+                    className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-white/15 dark:bg-transparent dark:text-gray-100 dark:hover:bg-white/5"
+                  >
+                    Mark read
+                  </button>
+                ) : null}
               </div>
-              {!n.read_at ? (
-                <button
-                  type="button"
-                  onClick={() => markOne(n.id)}
-                  className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-white/15 dark:bg-transparent dark:text-gray-100 dark:hover:bg-white/5"
-                >
-                  Mark read
-                </button>
-              ) : null}
-            </div>
-          </li>
-        ))}
+            </li>
+          )
+        })}
         {rows.length === 0 && <p className={`text-sm ${admin.textMuted}`}>No notifications.</p>}
       </ul>
     </div>

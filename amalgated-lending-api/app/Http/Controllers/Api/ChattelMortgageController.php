@@ -8,6 +8,7 @@ use App\Models\AdminNotification;
 use App\Models\Loan;
 use App\Models\LoanApplication;
 use App\Models\LoanDocument;
+use App\Models\LoanProduct;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BrevoMailService;
@@ -20,9 +21,6 @@ use Illuminate\Support\Str;
 
 class ChattelMortgageController extends Controller
 {
-    /** 3.88% per month → annual_interest_rate 46.56 (monthlyRate = 46.56/12/100) */
-    private const CHATTEL_ANNUAL_RATE_FOR_MONTHLY_3_88 = 46.56;
-
     public function __construct(
         private BrevoMailService $brevo,
     ) {
@@ -34,7 +32,7 @@ class ChattelMortgageController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|min:1|max:36',
             'application_payload' => 'nullable|string',
@@ -63,9 +61,11 @@ class ChattelMortgageController extends Controller
 
         $data = $request->validate($rules);
         $payload = $this->decodeApplicationPayload($data['application_payload'] ?? null);
+        $monthlyRatePercent = $this->resolveMonthlyRatePercent('chattel-mortgage', 3.88);
+        $annualRatePercent = $monthlyRatePercent * 12;
         $payload['loan_product_slug'] = 'chattel-mortgage';
         $payload['loan_product_type'] = LoanApplication::TYPE_CHATTEL;
-        $payload['selected_interest_rate'] = 3.88;
+        $payload['selected_interest_rate'] = round($monthlyRatePercent, 4);
         $payload['selected_rate_type'] = 'monthly';
 
         $applicantEmail = mb_strtolower(trim($data['email']));
@@ -79,7 +79,7 @@ class ChattelMortgageController extends Controller
         }
 
         try {
-            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $coMakerEmail) {
+            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $coMakerEmail, $annualRatePercent) {
                 $borrower = User::firstOrCreate(
                     ['email' => $applicantEmail],
                     [
@@ -143,7 +143,7 @@ class ChattelMortgageController extends Controller
                     'borrower_id' => $borrower->id,
                     'principal' => $data['principal'],
                     'term_months' => $data['term_months'],
-                    'annual_interest_rate' => self::CHATTEL_ANNUAL_RATE_FOR_MONTHLY_3_88,
+                    'annual_interest_rate' => $annualRatePercent,
                     'status' => Loan::STATUS_PENDING,
                     'application_payload' => $payload,
                 ]);
@@ -158,6 +158,7 @@ class ChattelMortgageController extends Controller
                     'co_maker_phone' => $data['co_maker_phone'] ?? null,
                     'tin_number' => $data['tin_number'] ?? null,
                     'stencil_text' => isset($data['stencil_text']) ? trim((string) $data['stencil_text']) : null,
+                    'form_data' => $payload,
                     'status' => LoanApplication::STATUS_PENDING,
                 ]);
 
@@ -274,6 +275,23 @@ class ChattelMortgageController extends Controller
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function resolveMonthlyRatePercent(string $slug, float $fallback): float
+    {
+        $product = LoanProduct::query()->where('slug', $slug)->first();
+        if (! $product) {
+            return $fallback;
+        }
+        $rate = (float) $product->interest_rate;
+        if ($rate <= 0) {
+            return $fallback;
+        }
+        if ((string) $product->rate_type === 'annual') {
+            return $rate / 12;
+        }
+
+        return $rate;
+    }
+
     private function notifyBorrower(User $borrower, Loan $loan): void
     {
         $email = trim((string) $borrower->email);
@@ -284,14 +302,18 @@ class ChattelMortgageController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your Chattel Mortgage application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

@@ -18,7 +18,9 @@ import { deriveApplicantFromExtended, normalizeCoMakerStatementPayload, normaliz
 import { postSssPensionLoanApplication } from '../utils/lendingApi.js'
 import { openModal } from '../utils/systemModal.js'
 import TravelSignaturePad from '../components/travel/TravelSignaturePad.jsx'
-import { collectMissingFields, focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { buildMissingFieldsSummary, collectMissingFields, focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { isFullApplicationPrintable } from '../components/loan/amalgatedApplicationCompleteness.js'
+import { getLoanProducts } from '../utils/loanProductsPublicApi.js'
 
 const MAX_AGE = 70
 const TERM_OPTIONS = [6, 12, 18, 24, 30, 36]
@@ -50,12 +52,32 @@ export default function SssPensionLoanPage() {
   const [signatureData, setSignatureData] = useState('')
   const [spouseSignatureData, setSpouseSignatureData] = useState('')
   const [coMakerSignatureData, setCoMakerSignatureData] = useState('')
+  const [rateLabel, setRateLabel] = useState('2.24% per month')
 
   useEffect(() => {
     if (errorMsg) {
       openModal({ message: errorMsg, tone: 'error' })
     }
   }, [errorMsg])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await getLoanProducts()
+        const p = (rows || []).find((x) => String(x.slug || '').toLowerCase() === 'sss-pension-loan')
+        if (!p || cancelled) return
+        const rate = Number(p.interest_rate)
+        const label = Number.isFinite(rate) ? `${rate.toFixed(2)}% ${p.rate_type === 'fixed' ? 'fixed' : 'per month'}` : null
+        if (label) setRateLabel(label)
+      } catch {
+        // keep fallback label
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -93,7 +115,7 @@ export default function SssPensionLoanPage() {
     if (Object.keys(missingFields).length) {
       setFieldErrors(missingFields)
       setStatus('error')
-      setErrorMsg('Please fill in all required fields.')
+      setErrorMsg(buildMissingFieldsSummary(missingFields))
       focusFirstInvalidField(missingFields)
       return
     }
@@ -199,6 +221,7 @@ export default function SssPensionLoanPage() {
   const tier = 'purple'
   const applicantName = extendedApplication.applicant?.name || ''
   const loanPrincipal = extendedApplication.loan_principal_php || ''
+  const canPrintApplication = isFullApplicationPrintable(extendedApplication, coMakerStatement, addCoMaker)
 
   return (
     <div className="flex min-h-screen flex-col bg-brand-background-alt text-brand-text">
@@ -217,7 +240,7 @@ export default function SssPensionLoanPage() {
                 </div>
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight text-brand-text dark:text-white">SSS / GSIS Pensioner Loan</h1>
-                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>2.24% per month</p>
+                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>{rateLabel}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -355,7 +378,7 @@ export default function SssPensionLoanPage() {
                     extendedApplication={extendedApplication}
                     coMakerStatement={addCoMaker ? coMakerStatement : null}
                     includeCoMaker={addCoMaker}
-                    canPrint={status === 'success'}
+                    canPrint={canPrintApplication}
                     applicantSignatureData={signatureData}
                   />
                 </fieldset>

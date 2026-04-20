@@ -571,7 +571,7 @@ export default function AmalgatedApplicationPrintBundle({
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Print application form</p>
             <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">
-              {canPrint ? 'Open a clean print-ready copy of this application.' : 'Print is available after successful submission.'}
+              {canPrint ? 'Open a clean print-ready copy of this application.' : 'Print is available after completing the required fields.'}
             </p>
           </div>
           <button

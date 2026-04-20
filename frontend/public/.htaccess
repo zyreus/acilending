@@ -1,6 +1,14 @@
 # Single-page app (Vite build) on Apache / cPanel.
 # Copied to dist/ root on `npm run build`. Upload dist/* to amalgatedlending.com document root.
 # If the site lives in a subfolder, set RewriteBase /that-folder/ (otherwise / is fine).
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+  Header set Permissions-Policy "accelerometer=(), camera=(self), geolocation=(), microphone=(), payment=()"
+</IfModule>
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /

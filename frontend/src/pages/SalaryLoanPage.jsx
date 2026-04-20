@@ -19,7 +19,9 @@ import {
 } from '../components/loan/amalgatedPayloadMerge.js'
 import { postSalaryLoanApplication } from '../utils/lendingApi.js'
 import { openModal } from '../utils/systemModal.js'
-import { collectMissingFields, focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { buildMissingFieldsSummary, collectMissingFields, focusFirstInvalidField } from '../utils/applicationFormValidation.js'
+import { isFullApplicationPrintable } from '../components/loan/amalgatedApplicationCompleteness.js'
+import { getLoanProducts } from '../utils/loanProductsPublicApi.js'
 
 /** Must match `SalaryLoanController::SALARY_TO_PRINCIPAL_MULTIPLIER` */
 const SALARY_PRINCIPAL_MULTIPLIER = 6
@@ -56,12 +58,33 @@ export default function SalaryLoanPage() {
   })
   const [signatureData, setSignatureData] = useState('')
   const [coMakerSignatureData, setCoMakerSignatureData] = useState('')
+  const canPrintApplication = isFullApplicationPrintable(extendedApplication, coMakerStatement, true)
+  const [rateLabel, setRateLabel] = useState('1.50% per month')
 
   useEffect(() => {
     if (errorMsg) {
       openModal({ message: errorMsg, tone: 'error' })
     }
   }, [errorMsg])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await getLoanProducts()
+        const p = (rows || []).find((x) => String(x.slug || '').toLowerCase() === 'salary-loan')
+        if (!p || cancelled) return
+        const rate = Number(p.interest_rate)
+        const label = Number.isFinite(rate) ? `${rate.toFixed(2)}% ${p.rate_type === 'fixed' ? 'fixed' : 'per month'}` : null
+        if (label) setRateLabel(label)
+      } catch {
+        // keep fallback label
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const monthlySalaryNum = Number(extendedApplication.product_extra?.monthly_salary || 0)
   const maxLoan = useMemo(() => maxPrincipalForSalary(monthlySalaryNum), [monthlySalaryNum])
@@ -102,7 +125,7 @@ export default function SalaryLoanPage() {
     if (Object.keys(missingFields).length) {
       setFieldErrors(missingFields)
       setStatus('error')
-      setErrorMsg('Please fill in all required fields.')
+      setErrorMsg(buildMissingFieldsSummary(missingFields))
       focusFirstInvalidField(missingFields)
       return
     }
@@ -236,7 +259,7 @@ export default function SalaryLoanPage() {
                 </div>
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight text-brand-text dark:text-white">Salary Loan</h1>
-                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>1.50% per month</p>
+                  <p className={`mt-1 text-base font-semibold ${tierAccentClass(tier)}`}>{rateLabel}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -358,7 +381,7 @@ export default function SalaryLoanPage() {
                     extendedApplication={extendedApplication}
                     coMakerStatement={coMakerStatement}
                     includeCoMaker
-                    canPrint={status === 'success'}
+                    canPrint={canPrintApplication}
                     applicantSignatureData={signatureData}
                   />
                 </fieldset>

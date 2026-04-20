@@ -391,7 +391,7 @@ export default function BorrowerDetailPage() {
                       ) : null}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {ln.print_application_url ? (
                       <a
                         href={ln.print_application_url}
@@ -400,6 +400,16 @@ export default function BorrowerDetailPage() {
                         className="text-xs font-semibold text-red-600 hover:underline dark:text-red-400"
                       >
                         Print form
+                      </a>
+                    ) : null}
+                    {ln.print_statement_url ? (
+                      <a
+                        href={ln.print_statement_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold text-red-600 hover:underline dark:text-red-400"
+                      >
+                        Print SOA
                       </a>
                     ) : null}
                     <Link
@@ -556,7 +566,7 @@ export default function BorrowerDetailPage() {
                     <td className={`${admin.tableCell} capitalize`}>{ln.status}</td>
                     <td className={`${admin.tableCell} text-xs`}>{formatDateTime(ln.created_at)}</td>
                     <td className={`${admin.tableCell} text-right`}>
-                      <div className="flex items-center justify-end gap-3">
+                      <div className="flex flex-wrap items-center justify-end gap-3">
                         {ln.print_application_url ? (
                           <a
                             href={ln.print_application_url}
@@ -565,6 +575,16 @@ export default function BorrowerDetailPage() {
                             className="text-xs font-semibold text-red-600 hover:underline dark:text-red-400"
                           >
                             Print
+                          </a>
+                        ) : null}
+                        {ln.print_statement_url ? (
+                          <a
+                            href={ln.print_statement_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-semibold text-red-600 hover:underline dark:text-red-400"
+                          >
+                            SOA
                           </a>
                         ) : null}
                         <Link

@@ -8,6 +8,7 @@ use App\Models\AdminNotification;
 use App\Models\Loan;
 use App\Models\LoanApplication;
 use App\Models\LoanDocument;
+use App\Models\LoanProduct;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BrevoMailService;
@@ -20,9 +21,6 @@ use Illuminate\Support\Str;
 
 class RealEstateMortgageController extends Controller
 {
-    /** 3.88% per month */
-    private const REM_ANNUAL_RATE_FOR_MONTHLY_3_88 = 46.56;
-
     public function __construct(
         private BrevoMailService $brevo,
     ) {
@@ -34,7 +32,7 @@ class RealEstateMortgageController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|min:1|max:36',
             'application_payload' => 'nullable|string',
@@ -61,9 +59,11 @@ class RealEstateMortgageController extends Controller
         $tinText = trim((string) ($data['tin_number'] ?? ''));
 
         $payload = $this->decodeApplicationPayload($data['application_payload'] ?? null);
+        $monthlyRatePercent = $this->resolveMonthlyRatePercent('real-estate-mortgage', 3.88);
+        $annualRatePercent = $monthlyRatePercent * 12;
         $payload['loan_product_slug'] = 'real-estate-mortgage';
         $payload['loan_product_type'] = LoanApplication::TYPE_REAL_ESTATE;
-        $payload['selected_interest_rate'] = 3.88;
+        $payload['selected_interest_rate'] = round($monthlyRatePercent, 4);
         $payload['selected_rate_type'] = 'monthly';
         $payload['property_location'] = trim($data['property_location']);
         $payload['property_value'] = (float) $data['property_value'];
@@ -71,7 +71,7 @@ class RealEstateMortgageController extends Controller
         $applicantEmail = mb_strtolower(trim($data['email']));
 
         try {
-            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $tinText) {
+            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $tinText, $annualRatePercent) {
                 $borrower = User::firstOrCreate(
                     ['email' => $applicantEmail],
                     [
@@ -103,7 +103,7 @@ class RealEstateMortgageController extends Controller
                     'borrower_id' => $borrower->id,
                     'principal' => $data['principal'],
                     'term_months' => $data['term_months'],
-                    'annual_interest_rate' => self::REM_ANNUAL_RATE_FOR_MONTHLY_3_88,
+                    'annual_interest_rate' => $annualRatePercent,
                     'status' => Loan::STATUS_PENDING,
                     'application_payload' => $payload,
                 ]);
@@ -120,6 +120,7 @@ class RealEstateMortgageController extends Controller
                     'stencil_text' => null,
                     'property_location' => trim($data['property_location']),
                     'property_value' => $data['property_value'],
+                    'form_data' => $payload,
                     'status' => LoanApplication::STATUS_PENDING,
                 ]);
 
@@ -236,6 +237,23 @@ class RealEstateMortgageController extends Controller
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function resolveMonthlyRatePercent(string $slug, float $fallback): float
+    {
+        $product = LoanProduct::query()->where('slug', $slug)->first();
+        if (! $product) {
+            return $fallback;
+        }
+        $rate = (float) $product->interest_rate;
+        if ($rate <= 0) {
+            return $fallback;
+        }
+        if ((string) $product->rate_type === 'annual') {
+            return $rate / 12;
+        }
+
+        return $rate;
+    }
+
     private function notifyBorrower(User $borrower, Loan $loan): void
     {
         $email = trim((string) $borrower->email);
@@ -246,14 +264,18 @@ class RealEstateMortgageController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your Real Estate Mortgage application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

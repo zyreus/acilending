@@ -80,6 +80,8 @@ Route::prefix('v1')->group(function () {
     Route::post('/public/real-estate-mortgage/apply', [RealEstateMortgageController::class, 'apply']);
     Route::post('/public/salary-loan/apply', [SalaryLoanController::class, 'apply']);
     Route::post('/public/travel-assistance-loan/apply', [TravelAssistanceController::class, 'apply']);
+    // Travel wizard endpoint used by frontend `postTravelLoanWizardApplication`.
+    Route::post('/loan/apply', [TravelLoanWizardController::class, 'apply']);
     Route::post('/public/sss-pension-loan/apply', [SssPensionLoanController::class, 'apply']);
     Route::post('/public/leads', [PublicLeadController::class, 'store']);
     Route::get('/public/leads/{lead}/messages', [PublicLeadController::class, 'messages']);

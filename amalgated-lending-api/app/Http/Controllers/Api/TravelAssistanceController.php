@@ -8,6 +8,7 @@ use App\Models\AdminNotification;
 use App\Models\Loan;
 use App\Models\LoanApplication;
 use App\Models\LoanDocument;
+use App\Models\LoanProduct;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\BrevoMailService;
@@ -21,8 +22,6 @@ use Illuminate\Support\Str;
 
 class TravelAssistanceController extends Controller
 {
-    private const TRAVEL_ANNUAL_RATE_FOR_MONTHLY_3_5 = 42.0;
-
     private const MAX_PRINCIPAL = 2_000_000.0;
 
     private const BANK_STATEMENT_MONTHS_REQUIRED = 4;
@@ -38,7 +37,7 @@ class TravelAssistanceController extends Controller
             'email' => 'required|email',
             'name' => 'required|string|max:255',
             'phone' => 'nullable|string|max:32',
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'principal' => 'required|numeric|min:1000',
             'term_months' => 'required|integer|in:1',
             'application_payload' => 'nullable|string',
@@ -83,9 +82,11 @@ class TravelAssistanceController extends Controller
         }
 
         $payload = $this->decodeApplicationPayload($data['application_payload'] ?? null);
+        $monthlyRatePercent = $this->resolveMonthlyRatePercent('travel-assistance-loan', 3.5);
+        $annualRatePercent = $monthlyRatePercent * 12;
         $payload['loan_product_slug'] = 'travel-assistance-loan';
         $payload['loan_product_type'] = LoanApplication::TYPE_TRAVEL_ASSISTANCE;
-        $payload['selected_interest_rate'] = 3.5;
+        $payload['selected_interest_rate'] = round($monthlyRatePercent, 4);
         $payload['selected_rate_type'] = 'monthly';
         $payload['destination_country'] = $country;
         $payload['travel_date'] = $travelDay->toDateString();
@@ -98,7 +99,7 @@ class TravelAssistanceController extends Controller
         $tinText = trim((string) ($data['tin_number'] ?? ''));
 
         try {
-            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $tinText, $country, $travelDay) {
+            $result = DB::transaction(function () use ($request, $data, $payload, $applicantEmail, $tinText, $country, $travelDay, $annualRatePercent) {
                 $borrower = User::firstOrCreate(
                     ['email' => $applicantEmail],
                     [
@@ -130,7 +131,7 @@ class TravelAssistanceController extends Controller
                     'borrower_id' => $borrower->id,
                     'principal' => $data['principal'],
                     'term_months' => $data['term_months'],
-                    'annual_interest_rate' => self::TRAVEL_ANNUAL_RATE_FOR_MONTHLY_3_5,
+                    'annual_interest_rate' => $annualRatePercent,
                     'status' => Loan::STATUS_PENDING,
                     'application_payload' => $payload,
                 ]);
@@ -148,6 +149,7 @@ class TravelAssistanceController extends Controller
                     'destination_country' => $country,
                     'travel_date' => $travelDay->toDateString(),
                     'purpose' => trim($data['purpose']),
+                    'form_data' => $payload,
                     'status' => LoanApplication::STATUS_PENDING,
                 ]);
 
@@ -293,6 +295,23 @@ class TravelAssistanceController extends Controller
         return is_array($decoded) ? $decoded : [];
     }
 
+    private function resolveMonthlyRatePercent(string $slug, float $fallback): float
+    {
+        $product = LoanProduct::query()->where('slug', $slug)->first();
+        if (! $product) {
+            return $fallback;
+        }
+        $rate = (float) $product->interest_rate;
+        if ($rate <= 0) {
+            return $fallback;
+        }
+        if ((string) $product->rate_type === 'annual') {
+            return $rate / 12;
+        }
+
+        return $rate;
+    }
+
     private function notifyBorrower(User $borrower, Loan $loan): void
     {
         $email = trim((string) $borrower->email);
@@ -303,14 +322,18 @@ class TravelAssistanceController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your Travel Assistance Loan application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

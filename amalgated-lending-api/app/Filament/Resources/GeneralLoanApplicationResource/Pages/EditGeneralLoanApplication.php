@@ -3,10 +3,13 @@
 namespace App\Filament\Resources\GeneralLoanApplicationResource\Pages;
 
 use App\Filament\Resources\GeneralLoanApplicationResource;
+use App\Mail\GeneralLoanApplicationStatusMail;
 use App\Models\LoanApplication;
+use App\Services\BrevoMailService;
 use Filament\Forms;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Support\Facades\Mail;
 
 class EditGeneralLoanApplication extends EditRecord
 {
@@ -24,9 +27,12 @@ class EditGeneralLoanApplication extends EditRecord
                 ->label('Approve')
                 ->color('success')
                 ->requiresConfirmation()
-                ->action(fn () => $this->record->update([
-                    'status' => LoanApplication::STATUS_APPROVED,
-                ])),
+                ->action(function (): void {
+                    $this->record->update([
+                        'status' => LoanApplication::STATUS_APPROVED,
+                    ]);
+                    $this->notifyBorrowerStatus(LoanApplication::STATUS_APPROVED);
+                }),
             Action::make('verify')
                 ->label('Mark verified')
                 ->color('secondary')
@@ -47,7 +53,46 @@ class EditGeneralLoanApplication extends EditRecord
                         'status' => LoanApplication::STATUS_REJECTED,
                         'rejection_reason' => $data['rejection_reason'],
                     ]);
+                    $this->notifyBorrowerStatus(LoanApplication::STATUS_REJECTED);
                 }),
         ], parent::getHeaderActions());
+    }
+
+    private function notifyBorrowerStatus(string $status): void
+    {
+        $application = $this->record->fresh(['borrower']);
+        $borrower = $application?->borrower;
+        if (! $borrower) {
+            return;
+        }
+
+        $email = trim((string) $borrower->email);
+        if ($email === '' || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        $mailable = new GeneralLoanApplicationStatusMail($application, (string) $borrower->name, $status);
+        $subject = match ($status) {
+            LoanApplication::STATUS_APPROVED => 'Loan application update: approved — Amalgated Lending Inc.',
+            LoanApplication::STATUS_REJECTED => 'Loan application update: rejected — Amalgated Lending Inc.',
+            default => 'Loan application submitted — Amalgated Lending Inc.',
+        };
+
+        $brevo = app(BrevoMailService::class);
+        if ($brevo->isConfigured()) {
+            try {
+                $brevo->sendHtml($email, (string) $borrower->name, $subject, $mailable->render());
+
+                return;
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        try {
+            Mail::to($email)->send($mailable);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 }

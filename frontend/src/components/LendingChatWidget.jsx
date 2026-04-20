@@ -65,11 +65,13 @@ export default function LendingChatWidget() {
   const [showFeedback, setShowFeedback] = useState(false)
   const [agentStep, setAgentStep] = useState(null)
   const [agentForm, setAgentForm] = useState({ name: '', email: '', concern: '' })
+  const [socketConnected, setSocketConnected] = useState(false)
 
   const socketRef = useRef(null)
   const convoId = useRef(getConvoId())
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const openRef = useRef(open)
 
   const sourcePage = useMemo(
     () => (typeof window !== 'undefined' ? window.location.pathname || '/' : '/'),
@@ -112,7 +114,7 @@ export default function LendingChatWidget() {
     socket.on('chat:message', (msg) => {
       setMessages((prev) => [...prev, { ...msg, time: msg.created_at }])
       setTyping(false)
-      if (!open && msg.sender !== 'user') setUnread((n) => n + 1)
+      if (!openRef.current && msg.sender !== 'user') setUnread((n) => n + 1)
     })
 
     socket.on('chat:typing', () => setTyping(true))
@@ -126,10 +128,18 @@ export default function LendingChatWidget() {
       setLeadForm({ name: '', email: '', phone: '', company: '' })
     })
 
+    socket.on('connect', () => setSocketConnected(true))
+    socket.on('disconnect', () => setSocketConnected(false))
+    socket.on('connect_error', () => setSocketConnected(false))
+
     socket.connect()
     socket.emit('visitor:join', { conversationId: convoId.current, source_page: sourcePage, lang })
     return () => socket.disconnect()
-  }, [lang, open, sourcePage])
+  }, [lang, sourcePage])
+
+  useEffect(() => {
+    openRef.current = open
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -297,7 +307,12 @@ export default function LendingChatWidget() {
               <option value="fil" className="text-slate-900">Filipino</option>
               <option value="es" className="text-slate-900">Espanol</option>
             </select>
-            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
+            <span
+              title={socketConnected ? 'Connected' : 'Reconnecting…'}
+              className={`flex h-2.5 w-2.5 rounded-full shadow-[0_0_6px_rgba(52,211,153,0.35)] ${
+                socketConnected ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
           </div>
 
           <div className="chat-scrollbar flex-1 space-y-3 overflow-y-auto px-4 py-4">

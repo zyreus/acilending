@@ -175,6 +175,16 @@ th{background:#f9fafb}
                   <p className={`text-xs ${ui.tableMuted}`}>
                     {formatPeso(l.principal)} · {l.term_months} mo · submitted {formatDate(l.created_at)}
                   </p>
+                  {l.print_statement_url ? (
+                    <a
+                      href={l.print_statement_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-xs font-semibold text-red-600 hover:underline dark:text-red-400"
+                    >
+                      Statement of account (SOA)
+                    </a>
+                  ) : null}
                 </div>
                 <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold capitalize text-gray-800 ring-1 ring-gray-200 dark:bg-[#0F172A] dark:text-gray-100 dark:ring-[#374151]">
                   {String(l.status || '—').replace(/_/g, ' ')}
@@ -306,7 +316,7 @@ th{background:#f9fafb}
                             rel="noreferrer"
                             className="shrink-0 rounded-lg bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white dark:bg-gray-100 dark:text-gray-900"
                           >
-                            Print A4
+                            View filled form
                           </a>
                         ) : null}
                       </div>
@@ -319,6 +329,36 @@ th{background:#f9fafb}
                             </li>
                           ))}
                         </ul>
+                      ) : null}
+                      {Array.isArray(row.uploaded_documents) && row.uploaded_documents.length > 0 ? (
+                        <div className="mt-2">
+                          <p className={`text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Uploaded documents</p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {row.uploaded_documents.map((doc, idx) => (
+                              <a
+                                key={`${row.id}-${doc.key}-${idx}`}
+                                href={doc.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-md border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 dark:border-[#374151] dark:text-gray-200 dark:hover:bg-white/10"
+                              >
+                                {doc.label}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {Array.isArray(row.form_preview) && row.form_preview.length > 0 ? (
+                        <div className="mt-2 rounded-lg border border-gray-200 bg-white/70 p-2 dark:border-[#1F2937] dark:bg-[#111827]/60">
+                          <p className={`text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Form preview</p>
+                          <ul className="mt-1 space-y-0.5 text-xs text-gray-700 dark:text-gray-300">
+                            {row.form_preview.slice(0, 4).map((f, idx) => (
+                              <li key={`${row.id}-fp-${idx}`}>
+                                <span className="font-semibold">{f.label}:</span> {f.value}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
                       <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400">
                         {row.signatures?.applicant ? (
@@ -373,7 +413,7 @@ th{background:#f9fafb}
                               rel="noreferrer"
                               className="shrink-0 rounded-lg bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white dark:bg-gray-100 dark:text-gray-900"
                             >
-                              Print A4
+                              View filled form
                             </a>
                           ) : null}
                         </div>
@@ -387,6 +427,36 @@ th{background:#f9fafb}
                             </li>
                           ))}
                         </ul>
+                      ) : null}
+                      {Array.isArray(row.uploaded_documents) && row.uploaded_documents.length > 0 ? (
+                        <div className="mt-2">
+                          <p className={`text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Uploaded documents</p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {row.uploaded_documents.map((doc, idx) => (
+                              <a
+                                key={`${row.id}-tdoc-${doc.key}-${idx}`}
+                                href={doc.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-md border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 dark:border-[#374151] dark:text-gray-200 dark:hover:bg-white/10"
+                              >
+                                {doc.label}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {Array.isArray(row.form_preview) && row.form_preview.length > 0 ? (
+                        <div className="mt-2 rounded-lg border border-gray-200 bg-white/70 p-2 dark:border-[#1F2937] dark:bg-[#111827]/60">
+                          <p className={`text-[11px] uppercase tracking-wide ${ui.textMuted}`}>Form preview</p>
+                          <ul className="mt-1 space-y-0.5 text-xs text-gray-700 dark:text-gray-300">
+                            {row.form_preview.slice(0, 4).map((f, idx) => (
+                              <li key={`${row.id}-tfp-${idx}`}>
+                                <span className="font-semibold">{f.label}:</span> {f.value}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
                     </li>
                   ))}

@@ -11,6 +11,7 @@ use App\Models\LoanApplicationContactPerson;
 use App\Models\LoanApplicationDependent;
 use App\Models\LoanCreditMemorandum;
 use App\Models\LoanDocument;
+use App\Models\LoanProduct;
 use App\Models\Role;
 use App\Models\TravelLoanWizardForm;
 use App\Models\User;
@@ -28,8 +29,6 @@ use Illuminate\Support\Str;
  */
 class TravelLoanWizardController extends Controller
 {
-    private const TRAVEL_ANNUAL_RATE_FOR_MONTHLY_3_5 = 42.0;
-
     private const MAX_PRINCIPAL = 2_000_000.0;
 
     public function __construct(
@@ -40,7 +39,7 @@ class TravelLoanWizardController extends Controller
     public function apply(Request $request): JsonResponse
     {
         $rules = [
-            'password' => 'nullable|string|min:8|max:72',
+            'password' => 'required|string|min:8|max:72',
             'wizard_payload' => 'required|string',
             'terms_accepted' => 'required|accepted',
             'signature_data' => 'nullable|string',
@@ -89,9 +88,11 @@ class TravelLoanWizardController extends Controller
         $email = mb_strtolower(trim((string) ($personal['email'] ?? '')));
         $fullName = $this->buildFullName($personal);
         $phone = trim((string) ($personal['mobile_no'] ?? $personal['telephone_no'] ?? ''));
+        $monthlyRatePercent = $this->resolveMonthlyRatePercent('travel-assistance-loan', 3.5);
+        $annualRatePercent = $monthlyRatePercent * 12;
 
         try {
-            $result = DB::transaction(function () use ($request, $wizard, $principal, $termMonths, $country, $purpose, $travelDate, $email, $fullName, $phone) {
+            $result = DB::transaction(function () use ($request, $wizard, $principal, $termMonths, $country, $purpose, $travelDate, $email, $fullName, $phone, $monthlyRatePercent, $annualRatePercent) {
                 $borrower = User::firstOrCreate(
                     ['email' => $email],
                     [
@@ -119,7 +120,7 @@ class TravelLoanWizardController extends Controller
                 $payload = $wizard;
                 $payload['loan_product_slug'] = 'travel-assistance-loan';
                 $payload['loan_product_type'] = LoanApplication::TYPE_TRAVEL_ASSISTANCE;
-                $payload['selected_interest_rate'] = 3.5;
+                $payload['selected_interest_rate'] = round($monthlyRatePercent, 4);
                 $payload['selected_rate_type'] = 'monthly';
                 $payload['destination_country'] = $country;
                 $payload['travel_date'] = $travelDate->toDateString();
@@ -130,7 +131,7 @@ class TravelLoanWizardController extends Controller
                     'borrower_id' => $borrower->id,
                     'principal' => $principal,
                     'term_months' => max(1, $termMonths),
-                    'annual_interest_rate' => self::TRAVEL_ANNUAL_RATE_FOR_MONTHLY_3_5,
+                    'annual_interest_rate' => $annualRatePercent,
                     'status' => Loan::STATUS_PENDING,
                     'application_payload' => $payload,
                 ]);
@@ -148,6 +149,7 @@ class TravelLoanWizardController extends Controller
                     'destination_country' => $country,
                     'travel_date' => $travelDate->toDateString(),
                     'purpose' => $purpose,
+                    'form_data' => $payload,
                     'status' => LoanApplication::STATUS_PENDING,
                 ]);
 
@@ -292,6 +294,23 @@ class TravelLoanWizardController extends Controller
         return implode(' ', $parts) ?: 'Applicant';
     }
 
+    private function resolveMonthlyRatePercent(string $slug, float $fallback): float
+    {
+        $product = LoanProduct::query()->where('slug', $slug)->first();
+        if (! $product) {
+            return $fallback;
+        }
+        $rate = (float) $product->interest_rate;
+        if ($rate <= 0) {
+            return $fallback;
+        }
+        if ((string) $product->rate_type === 'annual') {
+            return $rate / 12;
+        }
+
+        return $rate;
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $rows
      */
@@ -348,14 +367,18 @@ class TravelLoanWizardController extends Controller
         $mailable = new LoanApplicationReceivedMail($loan, (string) $borrower->name);
         $subject = 'We received your Travel Assistance Loan application — Amalgated Lending';
 
-        try {
-            if ($this->brevo->isConfigured()) {
+        if ($this->brevo->isConfigured()) {
+            try {
                 $html = $mailable->render();
                 $this->brevo->sendHtml($email, $borrower->name, $subject, $html);
 
                 return;
+            } catch (\Throwable $e) {
+                report($e);
             }
+        }
 
+        try {
             Mail::to($email)->send($mailable);
         } catch (\Throwable $e) {
             report($e);

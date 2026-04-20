@@ -46,9 +46,9 @@
     <p class="section">Borrower</p>
     <table>
         <tbody>
-            <tr><th>Name</th><td>{{ $na($borrower->name ?? null) }}</td></tr>
-            <tr><th>Email</th><td>{{ $na($borrower->email ?? null) }}</td></tr>
-            <tr><th>Phone</th><td>{{ $na($borrower->phone ?? null) }}</td></tr>
+            <tr><th>Name</th><td>{{ $na($borrower?->name ?? null) }}</td></tr>
+            <tr><th>Email</th><td>{{ $na($borrower?->email ?? null) }}</td></tr>
+            <tr><th>Phone</th><td>{{ $na($borrower?->phone ?? null) }}</td></tr>
         </tbody>
     </table>
 

@@ -31,10 +31,36 @@
                 alertMessage: '',
                 docNames: ['', '', ''],
                 submittedSuccess: false,
+                submitting: false,
                 trimVal(name) {
                     const el = this.$refs[name];
                     if (!el) return '';
                     return String(el.value ?? '').trim();
+                },
+                buildPayload() {
+                    const amount = Number(this.trimVal('amount') || 0);
+                    const term = Number(this.trimVal('term') || 0);
+                    return {
+                        name: this.trimVal('fullName'),
+                        email: this.trimVal('email'),
+                        phone: this.trimVal('phone') || null,
+                        principal: Number.isFinite(amount) ? amount : 0,
+                        term_months: Number.isFinite(term) ? term : 0,
+                        application_payload: {
+                            full_name: this.trimVal('fullName') || null,
+                            email: this.trimVal('email') || null,
+                            phone: this.trimVal('phone') || null,
+                            date_of_birth: this.trimVal('birthdate') || null,
+                            address: this.trimVal('address') || null,
+                            employer_name: this.trimVal('employer') || null,
+                            job_title: this.trimVal('jobTitle') || null,
+                            monthly_income: this.trimVal('income') || null,
+                            loan_type: this.trimVal('product') || null,
+                            loan_amount: this.trimVal('amount') || null,
+                            loan_term_months: this.trimVal('term') || null,
+                            purpose: this.trimVal('purpose') || null,
+                        },
+                    };
                 },
                 dismissAlert() {
                     this.alertMessage = '';
@@ -180,16 +206,42 @@
                     const el = this.$refs['docInput' + i];
                     if (el) el.value = '';
                 },
-                submitApplication() {
+                async submitApplication() {
                     if (!this.allDocumentsSelected) {
                         this.alertMessage = 'Please upload all required documents before submitting your application.';
                         return;
                     }
+                    if (!this.validateEntireApplication()) {
+                        return;
+                    }
+                    if (this.submitting) return;
                     this.alertMessage = '';
-                    this.submittedSuccess = true;
-                    this.$nextTick(() => {
-                        this.$refs.successAnchor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    });
+                    this.submitting = true;
+                    try {
+                        const payload = this.buildPayload();
+                        const res = await fetch('/api/public/loan-applications', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                            body: JSON.stringify(payload),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                            const msg =
+                                data?.message ||
+                                (data?.errors && typeof data.errors === 'object' ? Object.values(data.errors).flat().join(' ') : '') ||
+                                `Submit failed (HTTP ${res.status})`;
+                            this.alertMessage = msg || 'Submit failed.';
+                            this.submitting = false;
+                            return;
+                        }
+                        this.submittedSuccess = true;
+                        this.$nextTick(() => {
+                            this.$refs.successAnchor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        });
+                    } catch (e) {
+                        this.alertMessage = (e && e.message) ? e.message : 'Submit failed.';
+                        this.submitting = false;
+                    }
                 },
             }));
         });
@@ -523,19 +575,19 @@
                         x-show="mainStep === 2"
                         x-cloak
                         @click="submitApplication()"
-                        :disabled="!allDocumentsSelected"
-                        :class="allDocumentsSelected
+                        :disabled="!allDocumentsSelected || submitting"
+                        :class="(allDocumentsSelected && !submitting)
                             ? 'w-full rounded-lg bg-blue-600 px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2'
                             : 'w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-4 py-3.5 text-sm font-semibold text-gray-400'"
                     >
-                        Submit application
+                        <span x-text="submitting ? 'Submitting…' : 'Submit application'"></span>
                     </button>
                 </div>
             </footer>
         </div>
 
         <p class="mt-6 text-center text-xs text-gray-400">
-            UI demo — client-side checks only; connect this view to your Laravel routes when you are ready to persist applications.
+            This page now submits to <span class="font-mono">/api/public/loan-applications</span>. Uploaded document selection is still UI-only (no files are uploaded here).
         </p>
     </div>
 </body>

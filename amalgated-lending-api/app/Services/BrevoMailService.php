@@ -55,13 +55,17 @@ class BrevoMailService
             'htmlContent' => $htmlContent,
         ];
 
-        $response = Http::timeout((int) config('services.brevo.timeout', 30))
+        $pending = Http::timeout((int) config('services.brevo.timeout', 30))
             ->withHeaders([
                 'api-key' => $key,
                 'accept' => 'application/json',
                 'content-type' => 'application/json',
-            ])
-            ->post($url, $payload);
+            ]);
+        if (! config('services.brevo.verify_ssl', true)) {
+            $pending = $pending->withoutVerifying();
+        }
+
+        $response = $pending->post($url, $payload);
 
         if (! $response->successful()) {
             $body = $response->json();

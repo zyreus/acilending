@@ -24,3 +24,4 @@ Route::view('/travel-assistance/terms', 'travel.terms')->name('travel.terms');
 
 Route::get('/print/general-loan/{loanApplication}', [LoanPrintController::class, 'generalLoan'])->name('print.general-loan');
 Route::get('/print/travel-loan/{travelApplication}', [LoanPrintController::class, 'travelLoan'])->name('print.travel-loan');
+Route::get('/print/loan-soa/{loan}', [LoanPrintController::class, 'loanSoa'])->name('print.loan-soa');

@@ -83,7 +83,25 @@ function mergeApiNav(rows, can) {
 
 const shell = 'flex h-[100dvh] min-h-0 w-full max-w-full flex-col overflow-hidden bg-[#f1f3f5] text-gray-900'
 const asideBase =
-  'fixed inset-y-0 left-0 z-50 flex h-[100dvh] w-[17.5rem] flex-col border-r border-gray-200/90 bg-white shadow-[4px_0_24px_rgba(15,23,42,0.06)] transition duration-300 ease-out lg:translate-x-0'
+  'fixed inset-y-0 left-0 z-50 flex h-[100dvh] flex-col border-r border-gray-200/90 bg-white shadow-[4px_0_24px_rgba(15,23,42,0.06)] transition-[transform,width] duration-300 ease-out lg:translate-x-0'
+
+const SIDEBAR_COLLAPSED_KEY = 'al-admin-sidebar-collapsed'
+
+function readSidebarCollapsed() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeSidebarCollapsed(value) {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
 
 export default function AdminLayout() {
   const { logout, user, can } = useAdminApiAuth()
@@ -91,6 +109,9 @@ export default function AdminLayout() {
   const location = useLocation()
   const chatFullBleed = location.pathname.startsWith('/admin/chat-crm')
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    typeof window !== 'undefined' ? readSidebarCollapsed() : false,
+  )
   const [navGroups, setNavGroups] = useState(() => buildGroupedNavFromConfig(can))
   const [navLoading, setNavLoading] = useState(true)
 
@@ -167,11 +188,21 @@ export default function AdminLayout() {
     navigate('/admin/login', { replace: true })
   }
 
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev
+      writeSidebarCollapsed(next)
+      return next
+    })
+  }
+
   const navInactive =
     'border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900'
   const navActive =
     'border-[#DC2626] bg-red-50 text-[#b91c1c] shadow-[inset_0_0_0_1px_rgba(220,38,38,0.1)]'
   const sidebarTransform = mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+  const asideWidthClass = sidebarCollapsed ? 'w-[17.5rem] lg:w-[4.75rem]' : 'w-[17.5rem]'
+  const mainPlClass = sidebarCollapsed ? 'lg:pl-[4.75rem]' : 'lg:pl-[17.5rem]'
 
   return (
     <div className={shell}>
@@ -184,20 +215,48 @@ export default function AdminLayout() {
         />
       ) : null}
 
-      <aside className={`${asideBase} ${sidebarTransform}`}>
+      <aside className={`${asideBase} ${asideWidthClass} ${sidebarTransform}`}>
         <div className="flex h-full min-h-0 flex-col">
-          <div className="shrink-0 border-b border-gray-100 bg-gradient-to-br from-white to-gray-50/80 px-4 py-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#DC2626] text-sm font-bold text-white shadow-md shadow-red-500/25">
-                AL
+          <div
+            className={`shrink-0 border-b border-gray-100 bg-gradient-to-br from-white to-gray-50/80 px-4 py-5 ${sidebarCollapsed ? 'lg:px-2 lg:py-4' : ''}`}
+          >
+            <div
+              className={`flex items-start justify-between gap-2 ${sidebarCollapsed ? 'lg:flex-col lg:items-center lg:justify-start lg:gap-3' : ''}`}
+            >
+              <div
+                className={`flex min-w-0 items-center gap-3 ${sidebarCollapsed ? 'lg:flex-col lg:items-center' : ''}`}
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#DC2626] text-sm font-bold text-white shadow-md shadow-red-500/25">
+                  AL
+                </div>
+                <div className={`min-w-0 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#DC2626]">Amalgated Lending</p>
+                  <p className="truncate text-base font-semibold tracking-tight text-gray-900">Admin</p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#DC2626]">Amalgated Lending</p>
-                <p className="truncate text-base font-semibold tracking-tight text-gray-900">Admin</p>
-              </div>
+              <button
+                type="button"
+                onClick={toggleSidebarCollapsed}
+                className="hidden shrink-0 rounded-lg border border-gray-200/80 p-1.5 text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 lg:inline-flex"
+                title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-expanded={!sidebarCollapsed}
+              >
+                {sidebarCollapsed ? (
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                )}
+              </button>
             </div>
             {user && (
-              <p className="mt-3 truncate rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600">
+              <p
+                className={`mt-3 truncate rounded-lg bg-gray-50 px-2.5 py-1.5 text-xs text-gray-600 ${sidebarCollapsed ? 'lg:hidden' : ''}`}
+              >
                 Signed in as <span className="font-medium text-gray-900">{user.username || user.email}</span>
               </p>
             )}
@@ -209,21 +268,37 @@ export default function AdminLayout() {
             ) : (
               navGroups.map((group) => (
                 <div key={group.id}>
-                  <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
+                  <p
+                    className={`mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400 ${sidebarCollapsed ? 'lg:hidden' : ''}`}
+                  >
+                    {group.label}
+                  </p>
                   <div className="space-y-0.5">
                     {group.items.map((item) => (
                       <NavLink
                         key={item.id ?? item.path}
                         to={item.path}
                         end={Boolean(item.match_end)}
+                        title={sidebarCollapsed ? item.label : undefined}
                         onClick={() => setMobileOpen(false)}
                         className={({ isActive }) =>
-                          ['flex items-center gap-3 rounded-lg border-l-[3px] px-2.5 py-2 text-sm font-medium transition-colors duration-150', isActive ? navActive : navInactive].join(' ')
+                          [
+                            'relative flex items-center gap-3 rounded-lg border-l-[3px] px-2.5 py-2 text-sm font-medium transition-colors duration-150',
+                            sidebarCollapsed ? 'lg:justify-center lg:gap-0 lg:px-2' : '',
+                            isActive ? navActive : navInactive,
+                          ].join(' ')
                         }
                       >
-                        <NavIcon name={item.icon_key || 'dash'} />
-                        <span className="min-w-0 flex-1 leading-snug">{item.label}</span>
-                        {item.path === '/admin/notifications' && notifUnread != null && notifUnread > 0 ? (
+                        <span className="relative inline-flex shrink-0">
+                          <NavIcon name={item.icon_key || 'dash'} />
+                          {item.path === '/admin/notifications' && notifUnread != null && notifUnread > 0 && sidebarCollapsed ? (
+                            <span className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">
+                              {notifUnread > 99 ? '99+' : notifUnread}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className={`min-w-0 flex-1 leading-snug ${sidebarCollapsed ? 'lg:sr-only' : ''}`}>{item.label}</span>
+                        {item.path === '/admin/notifications' && notifUnread != null && notifUnread > 0 && !sidebarCollapsed ? (
                           <span className="ml-auto inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">
                             {notifUnread > 99 ? '99+' : notifUnread}
                           </span>
@@ -236,29 +311,42 @@ export default function AdminLayout() {
             )}
           </nav>
 
-          <div className="shrink-0 space-y-1 border-t border-gray-100 bg-gray-50/50 p-3">
+          <div className={`shrink-0 space-y-1 border-t border-gray-100 bg-gray-50/50 p-3 ${sidebarCollapsed ? 'lg:px-2' : ''}`}>
             <Link
               to="/"
               onClick={() => setMobileOpen(false)}
-              className="flex items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm text-gray-700 transition hover:bg-white hover:text-gray-900"
+              title="Public site"
+              className={`flex items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm text-gray-700 transition hover:bg-white hover:text-gray-900 ${sidebarCollapsed ? 'lg:justify-center' : ''}`}
             >
-              <span aria-hidden>←</span> Public site
+              <span aria-hidden>←</span>
+              <span className={sidebarCollapsed ? 'lg:sr-only' : ''}>Public site</span>
             </Link>
             <button
               type="button"
+              title="Log out"
               onClick={() => {
                 setMobileOpen(false)
                 handleLogout()
               }}
-              className="w-full rounded-lg px-2.5 py-2.5 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+              className={`flex w-full items-center rounded-lg px-2.5 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50 ${sidebarCollapsed ? 'lg:justify-center' : 'text-left'}`}
             >
-              Log out
+              <span className={sidebarCollapsed ? 'lg:sr-only' : ''}>Log out</span>
+              <svg
+                className={`hidden h-5 w-5 shrink-0 text-red-600 ${sidebarCollapsed ? 'lg:block' : ''}`}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
             </button>
           </div>
         </div>
       </aside>
 
-      <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col lg:pl-[17.5rem]">
+      <div className={`flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col ${mainPlClass}`}>
         <header
           className={`sticky top-0 z-30 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-gray-200/80 bg-white/90 px-4 shadow-sm backdrop-blur-md sm:px-6 ${chatFullBleed ? 'py-2' : 'py-3'}`}
         >

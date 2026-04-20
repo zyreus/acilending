@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
- * Browser webcam capture for loan KYC (localhost or HTTPS only for getUserMedia).
+ * Browser webcam capture for loan KYC (secure context required for getUserMedia).
  */
 export default function FaceCapture({ onCapture, disabled }) {
   const videoRef = useRef(null)
@@ -49,7 +49,7 @@ export default function FaceCapture({ onCapture, disabled }) {
           setError(
             e?.name === 'NotAllowedError'
               ? 'Camera permission denied. Allow camera access to complete face capture.'
-              : 'Could not open camera. Use HTTPS or localhost, and check device settings.',
+              : 'Could not open camera. Use a secure HTTPS page and check device settings.',
           )
         }
       } finally {
