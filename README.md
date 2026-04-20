@@ -3,6 +3,7 @@
 This guide deploys:
 - Frontend (React/Vite) to `https://amalgatedlending.com`
 - Laravel API (`amalgated-lending-api`) to `https://api.amalgatedlending.com`
+- Node chat server (`chat-server`) to `https://chat.amalgatedlending.com`
 
 It matches the current project structure and environment templates in this repository.
 
@@ -84,7 +85,7 @@ FRONTEND_URL=https://amalgatedlending.com
 DB_CONNECTION=mysql
 DB_HOST=localhost
 DB_PORT=3306
-DB_DATABASE=<cpanel_db_name>
+DB_DATABASE=acilending_cpuser_lending
 DB_USERNAME=<cpanel_db_user>
 DB_PASSWORD=<cpanel_db_password>
 
@@ -95,7 +96,34 @@ Also configure mail and AWS keys if your flows require them:
 - Brevo SMTP/API settings
 - AWS Rekognition credentials and region
 
-## 6) File Permissions
+## 6) Chat Server Deployment (Node)
+
+Upload `chat-server` to the server and run it under cPanel Node.js App (Passenger) or PM2.
+
+Recommended chat `.env` production values:
+
+```env
+PORT=8010
+CHAT_CORS_ORIGINS=https://amalgatedlending.com,https://www.amalgatedlending.com
+TRUST_PROXY=1
+JWT_SECRET=<strong-random-secret>
+LENDING_ADMIN_API_SECRET=<same-as-frontend-VITE_LENDING_ADMIN_API_SECRET>
+```
+
+Optional MySQL backend for chat:
+
+```env
+DB_PROVIDER=mysql
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DATABASE=<cpanel_chat_db_name>
+MYSQL_USER=<cpanel_chat_db_user>
+MYSQL_PASSWORD=<cpanel_chat_db_password>
+```
+
+If not using MySQL for chat, default SQLite (`chat.db`) works but make sure the app can write to its folder.
+
+## 7) File Permissions
 
 Ensure these are writable by the web server user:
 - `amalgated-lending-api/storage`
@@ -107,7 +135,7 @@ Typical fix from SSH:
 chmod -R 775 storage bootstrap/cache
 ```
 
-## 7) Database Notes
+## 8) Database Notes
 
 Your local scripts mention two logical DBs:
 - `amalgated_lending_db` (Laravel API)
@@ -115,30 +143,33 @@ Your local scripts mention two logical DBs:
 
 In production, create required DBs/users from cPanel MySQL tools and update each service `.env`.
 
-## 8) Deployment Checklist
+## 9) Deployment Checklist
 
 - Frontend build generated with production env
 - `dist/` uploaded to `public_html/`
-- API code uploaded and subdomain docroot points to Laravel `public/`
+- API code uploaded and `api.amalgatedlending.com` docroot points to Laravel `public/`
+- Chat server running and reachable at `chat.amalgatedlending.com`
 - API `.env` configured for production
 - `php artisan migrate --force` completed successfully
 - Laravel caches built (`config`, `route`, `view`)
-- HTTPS enabled on both main domain and API subdomain
+- HTTPS enabled on all three hosts (main, api, chat)
 
-## 9) Quick Smoke Tests
+## 10) Quick Smoke Tests
 
 - Open `https://amalgatedlending.com` and verify frontend loads
 - Call one public/expected API endpoint under:
   - `https://api.amalgatedlending.com/api/v1/...`
+- Open admin chat area and verify it connects to `https://chat.amalgatedlending.com`
 - Test authentication flow (if enabled)
 - Test email flow (forgot password / lead email action)
 - Verify file uploads and liveness endpoints if AWS is enabled
 
-## 10) Common cPanel Issues
+## 11) Common cPanel Issues
 
 - **500 on API**: check `storage/logs/laravel.log`, verify `.env` values and file permissions
 - **404 on API routes**: confirm subdomain docroot points to Laravel `public/`
 - **CORS/Sanctum issues**: verify `SANCTUM_STATEFUL_DOMAINS`, `APP_URL`, and `FRONTEND_URL`
+- **Chat connection failure**: verify `VITE_CHAT_SERVER_URL`, `CHAT_CORS_ORIGINS`, SSL certificate, and reverse proxy/websocket support
 - **Stale config**: rerun `php artisan config:clear` then `php artisan config:cache`
 - **Frontend still calling localhost**: rebuild frontend after updating `.env.production`
 

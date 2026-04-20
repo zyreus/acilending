@@ -12,3 +12,4 @@ scripts/.laravel-bind-port
 chat-server/node_modules
 chat-server/chat.db
 chat-server/.env
+*.zip
