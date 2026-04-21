@@ -1,4 +1,6 @@
 {
-  "state": "starting",
-  "at": "2026-04-21T02:23:31.823Z"
+  "state": "ready",
+  "at": "2026-04-21T07:05:12.920Z",
+  "port": 8001,
+  "reused": true
 }
