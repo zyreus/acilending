@@ -15,6 +15,7 @@
     "dev:full:chat": "npm run dev:full",
     "lockfile:sync": "npm install --package-lock-only",
     "build": "npx vite build --config frontend/vite.config.js",
+    "build:full": "npm run build",
     "lint": "eslint .",
     "preview": "npx vite preview --config frontend/vite.config.js",
     "composer:install": "composer install --optimize-autoloader --working-dir=amalgated-lending-api",

@@ -335,11 +335,13 @@ export default function AdminChatDashboard({
     }
   }, [])
 
-  fetchLeadsRef.current = fetchLeads
-  fetchConversationsRef.current = fetchConversations
-  fetchTicketsRef.current = fetchTickets
-  fetchAnalyticsRef.current = fetchAnalytics
-  fetchFeedbackRef.current = fetchFeedback
+  useEffect(() => {
+    fetchLeadsRef.current = fetchLeads
+    fetchConversationsRef.current = fetchConversations
+    fetchTicketsRef.current = fetchTickets
+    fetchAnalyticsRef.current = fetchAnalytics
+    fetchFeedbackRef.current = fetchFeedback
+  }, [fetchLeads, fetchConversations, fetchTickets, fetchAnalytics, fetchFeedback])
 
   useEffect(() => {
     activeIdRef.current = activeId
