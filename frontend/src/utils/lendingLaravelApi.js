@@ -45,13 +45,13 @@ export function laravelApiBases() {
     typeof window !== 'undefined' && window.location?.hostname ? String(window.location.hostname) : ''
   const onPublicHost = !isLoopbackHostname(winHost)
 
-  if (explicit) {
-    addBase(bases, normalizeLaravelApiBase(explicit))
-  }
-
   // Dev: same-origin `/api/v1` via Vite proxy.
   if (typeof window !== 'undefined' && import.meta.env.DEV) {
     addBase(bases, '')
+  }
+
+  if (explicit) {
+    addBase(bases, normalizeLaravelApiBase(explicit))
   }
 
   try {
